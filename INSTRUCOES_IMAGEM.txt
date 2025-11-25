@@ -1,0 +1,18 @@
+INSTRUÇÕES PARA ADICIONAR A IMAGEM DE SUPORTE
+==============================================
+
+1. Copie a imagem do caminho: C:\Users\couti\Downloads\maicon
+
+2. Cole a imagem na pasta "images" do projeto:
+   C:\Users\couti\OneDrive\Área de Trabalho\PROJETO\images\
+
+3. Renomeie a imagem para: support-photo.jpg
+   (Se a imagem for PNG, renomeie para support-photo.png e atualize o HTML)
+
+4. A imagem será carregada automaticamente na tela de Suporte.
+
+NOTA: Se a imagem tiver outro nome ou formato, você pode:
+- Renomear para support-photo.jpg (ou .png, .jpeg)
+- Ou atualizar o arquivo index.html na linha 270, alterando:
+  src="images/support-photo.jpg" para o nome correto da sua imagem
+

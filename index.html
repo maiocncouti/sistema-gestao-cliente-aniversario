@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Gestão de Clientes</title>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header com Logo -->
+        <header class="header">
+            <div class="header-top">
+                <div class="logo-container">
+                    <img id="company-logo" src="" alt="Logo da Empresa" class="logo-img" style="display: none;">
+                    <h1 id="company-name">Nome da Empresa</h1>
+                </div>
+                <div class="header-right">
+                    <div class="license-status-header">
+                        <div id="license-status-card" class="license-status-card-header">
+                            <span id="license-status-text">Carregando...</span>
+                            <span id="license-time-text">--:--:--</span>
+                        </div>
+                    </div>
+                    <!-- Informações do Usuário Logado -->
+                    <div id="user-info-header" class="user-info-header" style="display: none;">
+                        <div class="user-info-content">
+                            <img id="logged-user-photo" class="user-avatar" src="" alt="Foto do usuário" style="display: none;">
+                            <span class="user-name-display"><span id="logged-user-name">Usuário</span></span>
+                            <div class="user-actions">
+                                <button class="btn-user-action" onclick="switchUser()" title="Trocar de usuário">🔄 Trocar</button>
+                                <button class="btn-user-action" onclick="handleLogout()" title="Sair do sistema">🚪 Sair</button>
+                            </div>
+                        </div>
+                    </div>
+                    <nav class="nav-menu">
+                        <button class="nav-btn active" data-section="home">Início</button>
+                        <button class="nav-btn" data-section="greetings">Felicitações</button>
+                        <button class="nav-btn" data-section="all-clients">Clientes</button>
+                        <div class="menu-dots-container">
+                            <button class="nav-btn menu-dots" data-section="more-options" onclick="showSection('more-options')">⋯</button>
+                        </div>
+                    </nav>
+                </div>
+            </div>
+        </header>
+
+        <!-- Seção Início -->
+        <section id="home" class="section active">
+            <!-- Tela de Login (mostra quando não logado) -->
+            <div id="login-screen" class="login-screen" style="display: none;">
+                <div class="login-container">
+                    <h2>Login</h2>
+                    <form id="login-form" class="form">
+                        <div class="form-group">
+                            <label for="login-username">Usuário *</label>
+                            <input type="text" id="login-username" required autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label for="login-password">Senha *</label>
+                            <input type="password" id="login-password" required autocomplete="current-password">
+                        </div>
+                        <button type="submit" class="btn btn-primary">Entrar</button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Conteúdo Principal (mostra quando logado) -->
+            <div id="home-content" class="home-content">
+                <h2>Bem-vindo ao Sistema de Gestão de Clientes</h2>
+                <div id="license-expiration-warning-home" class="license-expiration-warning" style="display: none;">
+                    <p>⚠️ Sua licença está expirada. Por favor, renove sua licença.</p>
+                </div>
+                <div class="stats-container">
+                    <div class="stat-card">
+                        <h3 id="total-clients">0</h3>
+                        <p>Clientes Cadastrados</p>
+                    </div>
+                    <div class="stat-card">
+                        <h3 id="today-birthdays">0</h3>
+                        <p>Aniversários Hoje</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Felicitações -->
+        <section id="greetings" class="section">
+            <h2>Felicitações</h2>
+            <div id="clients-list" class="clients-list"></div>
+            <button id="send-birthday-btn" class="btn btn-primary">Enviar Felicitações</button>
+        </section>
+
+        <!-- Seção Lista de Todos os Clientes -->
+        <section id="all-clients" class="section">
+            <div class="clients-layout">
+                <!-- Conteúdo Principal -->
+                <div class="clients-main-content">
+                    <div id="clients-list-view" class="clients-view active">
+                        <h2>Lista de Clientes</h2>
+                        <div id="all-clients-list" class="clients-list"></div>
+                    </div>
+                    
+                    <div id="clients-register-view" class="clients-view">
+                        <h2>Cadastrar Novo Cliente</h2>
+                        <form id="client-form" class="form">
+                            <div class="form-group">
+                                <label for="client-photo-input">Foto do Cliente</label>
+                                <input type="file" id="client-photo-input" accept="image/*">
+                                <div class="photo-preview">
+                                    <img id="client-photo-preview" src="" alt="Preview da Foto" style="display: none;">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="client-name">Nome *</label>
+                                <input type="text" id="client-name" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="client-cpf">CPF</label>
+                                <input type="text" id="client-cpf" placeholder="000.000.000-00">
+                            </div>
+
+                            <div class="form-group">
+                                <label for="client-birthdate">Data de Nascimento *</label>
+                                <input type="date" id="client-birthdate" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Telefones *</label>
+                                <div id="phones-container">
+                                    <div class="dynamic-field">
+                                        <input type="tel" class="phone-input" placeholder="(00) 00000-0000" required>
+                                        <button type="button" class="btn-remove" onclick="removeField(this, 'phone')">Remover</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-secondary" onclick="addField('phone')">+ Adicionar Telefone</button>
+                            </div>
+
+                            <div class="form-group">
+                                <label>Emails *</label>
+                                <div id="emails-container">
+                                    <div class="dynamic-field">
+                                        <input type="email" class="email-input" placeholder="email@exemplo.com" required>
+                                        <button type="button" class="btn-remove" onclick="removeField(this, 'email')">Remover</button>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn btn-secondary" onclick="addField('email')">+ Adicionar Email</button>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary">Cadastrar Cliente</button>
+                            <button type="button" class="btn btn-secondary" onclick="showClientsListView()" style="margin-left: 10px;">Cancelar</button>
+                        </form>
+                    </div>
+                </div>
+
+                <!-- Menu Lateral Direito -->
+                <div class="clients-sidebar">
+                    <h3>Menu</h3>
+                    <button class="sidebar-btn active" onclick="showClientsListView()">
+                        📋 Lista de Clientes
+                    </button>
+                    <button class="sidebar-btn" onclick="showClientsRegisterView()">
+                        ➕ Cadastrar Novo Cliente
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Perfil da Empresa -->
+        <section id="company" class="section">
+            <h2>Perfil da Empresa</h2>
+            <form id="company-form" class="form">
+                <div class="form-group">
+                    <label for="company-logo-input">Logo da Empresa</label>
+                    <input type="file" id="company-logo-input" accept="image/*">
+                    <div class="logo-preview">
+                        <img id="logo-preview" src="" alt="Preview do Logo" style="display: none;">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="company-name-input">Nome da Empresa *</label>
+                    <input type="text" id="company-name-input" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="owner-name">Nome do Proprietário</label>
+                    <input type="text" id="owner-name">
+                </div>
+
+                <div class="form-group">
+                    <label for="owner-contact">Contato do Proprietário</label>
+                    <input type="tel" id="owner-contact" placeholder="(00) 00000-0000">
+                </div>
+
+                <div class="form-group">
+                    <label for="owner-email">Email do Proprietário</label>
+                    <input type="email" id="owner-email" placeholder="email@exemplo.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="owner-birthdate">Data de Nascimento do Proprietário</label>
+                    <input type="date" id="owner-birthdate">
+                </div>
+
+                <div class="form-group">
+                    <label for="company-address">Endereço</label>
+                    <input type="text" id="company-address">
+                </div>
+
+                <div class="form-group">
+                    <label for="company-description">Descrição</label>
+                    <textarea id="company-description" rows="4"></textarea>
+                </div>
+
+                <div class="form-group">
+                    <label for="support-image-input">Imagem de Suporte (JPG, PNG, etc)</label>
+                    <input type="file" id="support-image-input" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
+                    <div class="support-image-preview" style="margin-top: 15px;">
+                        <img id="support-image-preview" src="" alt="Preview" style="display: none; max-width: 200px; max-height: 200px; border-radius: 10px; border: 2px solid #e0e0e0;">
+                    </div>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Salvar Dados da Empresa</button>
+                <button type="button" class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 15px; margin-left: 10px;">← Voltar</button>
+            </form>
+        </section>
+
+        <!-- Seção Mais Opções -->
+        <section id="more-options" class="section">
+            <h2>Mais Opções</h2>
+            <div class="more-options-grid">
+                <div class="option-card" onclick="showSection('company')">
+                    <div class="option-icon">🏢</div>
+                    <h3>Perfil da Empresa</h3>
+                    <p>Configure os dados da sua empresa</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('backup')">
+                    <div class="option-icon">💾</div>
+                    <h3>Backup dos Dados</h3>
+                    <p>Faça backup de todos os seus dados</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('restore')">
+                    <div class="option-icon">📥</div>
+                    <h3>Restaurar Dados</h3>
+                    <p>Restaura dados a partir de um backup</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('support')">
+                    <div class="option-icon">🆘</div>
+                    <h3>Suporte</h3>
+                    <p>Entre em contato conosco</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('license')">
+                    <div class="option-icon">🔑</div>
+                    <h3>Adquirir Licença</h3>
+                    <p>Ative uma nova licença</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('license-status')">
+                    <div class="option-icon">📊</div>
+                    <h3>Status da Licença</h3>
+                    <p>Verifique o status da sua licença</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('users')">
+                    <div class="option-icon">👥</div>
+                    <h3>Usuários</h3>
+                    <p>Gerencie os usuários do sistema</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('system-log')">
+                    <div class="option-icon">📋</div>
+                    <h3>Log do Sistema</h3>
+                    <p>Visualize os registros de ações do sistema</p>
+                </div>
+                
+                <div class="option-card" onclick="showSection('settings')">
+                    <div class="option-icon">⚙️</div>
+                    <h3>Configurações</h3>
+                    <p>Personalize a aparência do sistema</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Backup -->
+        <section id="backup" class="section">
+            <h2>Backup dos Dados</h2>
+            <div class="backup-restore-container">
+                <p>Faça backup de todos os seus dados (clientes, empresa, felicitações e licença).</p>
+                <button class="btn btn-primary" onclick="downloadBackup()">💾 Fazer Backup</button>
+                <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 15px;">← Voltar</button>
+            </div>
+        </section>
+
+        <!-- Seção Restaurar -->
+        <section id="restore" class="section">
+            <h2>Restaurar Dados</h2>
+            <div class="backup-restore-container">
+                <p>Restaura todos os dados a partir de um arquivo de backup.</p>
+                <p style="color: #e74c3c; font-weight: bold;">⚠️ Atenção: Esta ação irá substituir todos os dados atuais!</p>
+                <input type="file" id="restore-file-input" accept=".json" style="margin: 20px 0; padding: 10px; width: 100%; max-width: 400px;">
+                <button class="btn btn-primary" onclick="restoreBackup()">📥 Restaurar Backup</button>
+                <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 15px;">← Voltar</button>
+            </div>
+        </section>
+
+        <!-- Seção Suporte -->
+        <section id="support" class="section">
+            <!-- Primeira Pessoa de Suporte -->
+            <div class="support-section-wrapper">
+                <div class="support-left">
+                    <h2>Suporte</h2>
+                    <img id="support-image" src="images/support-photo.jpg" alt="Foto de Suporte" class="support-image" style="display: block !important; visibility: visible !important; opacity: 1 !important;">
+                </div>
+                <div class="support-right">
+                    <div class="support-container">
+                        <p>Entre em contato conosco através dos canais abaixo:</p>
+                        <div class="support-buttons">
+                            <button class="btn btn-email" onclick="openSupportEmail()">
+                                ✉️ EMAIL
+                            </button>
+                            <button class="btn btn-whatsapp" onclick="openSupportWhatsApp()">
+                                📱 WHATSAPP
+                            </button>
+                        </div>
+                        <div class="support-info">
+                            <p style="font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #667eea;">Suporte: Maicon Coutinho</p>
+                            <p><strong>Email:</strong> mcn.coutinho@gmail.com</p>
+                            <p><strong>WhatsApp:</strong> 41 98819 2359</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Segunda Pessoa de Suporte -->
+            <div class="support-section-wrapper support-section-reverse">
+                <div class="support-left-reverse">
+                    <div class="support-container">
+                        <p>Entre em contato conosco através dos canais abaixo:</p>
+                        <div class="support-buttons">
+                            <button class="btn btn-email" onclick="openSupportEmailMarcio()">
+                                ✉️ EMAIL
+                            </button>
+                            <button class="btn btn-whatsapp" onclick="openSupportWhatsAppMarcio()">
+                                📱 WHATSAPP
+                            </button>
+                        </div>
+                        <div class="support-info">
+                            <p style="font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #667eea;">Suporte: Marcio Mendes</p>
+                            <p><strong>Email:</strong> mendesmarciodji@gmail.com</p>
+                            <p><strong>WhatsApp:</strong> 41 998734231</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="support-right-reverse">
+                    <img id="support-image-marcio" src="images/marcio.jpg" alt="Foto de Suporte - Marcio" class="support-image" style="display: block !important; visibility: visible !important; opacity: 1 !important;">
+                </div>
+            </div>
+
+            <div style="text-align: center; margin-top: 30px;">
+                <button class="btn btn-secondary" onclick="showSection('more-options')">← Voltar</button>
+            </div>
+        </section>
+
+        <!-- Seção Adquirir Licença -->
+        <section id="license" class="section">
+            <h2>Adquirir Licença</h2>
+            <div class="license-container">
+                <div id="license-expiration-warning-license" class="license-expiration-warning" style="display: none;">
+                    <p>⚠️ Sua licença está expirada. Por favor, renove sua licença.</p>
+                </div>
+                <p>Digite a chave da licença no formato abaixo:</p>
+                <p style="color: #666; font-size: 14px;">Formato: XXXX-XXXX-XXXX-XXXX</p>
+                <form id="license-form" class="form">
+                    <div class="form-group">
+                        <label for="license-key">Chave da Licença</label>
+                        <input type="text" id="license-key" placeholder="XXXX-XXXX-XXXX-XXXX" maxlength="19" pattern="[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}">
+                    </div>
+                    <button type="submit" class="btn btn-primary">🔑 Ativar Licença</button>
+                    <div style="display: flex; gap: 10px; margin-top: 15px;">
+                        <button type="button" class="btn btn-secondary" onclick="showSection('more-options')">← Voltar</button>
+                        <button type="button" id="support-btn-expired" class="btn btn-support" onclick="showSection('support')" style="display: none;">🆘 Suporte</button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- Seção Status da Licença -->
+        <section id="license-status" class="section">
+            <h2>Status da Licença</h2>
+            <div id="license-status-content" class="license-status-container">
+                <!-- Conteúdo será preenchido via JavaScript -->
+            </div>
+            <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 20px;">← Voltar</button>
+        </section>
+
+        <!-- Seção Usuários -->
+        <section id="users" class="section">
+            <div class="users-layout">
+                <div class="users-main-content">
+                    <div class="users-header">
+                        <h2>Usuários</h2>
+                        <button class="btn btn-primary" onclick="showUsersRegisterView()">➕ Cadastrar Usuário</button>
+                    </div>
+                    
+                    <!-- Lista de Usuários -->
+                    <div id="users-list-view" class="users-view">
+                        <div id="users-list" class="clients-list">
+                            <!-- Usuários serão carregados aqui -->
+                        </div>
+                    </div>
+                    
+                    <!-- Formulário de Cadastro/Edição -->
+                    <div id="users-register-view" class="users-view" style="display: none;">
+                        <form id="user-form" class="form">
+                            <h3 id="user-form-title">Cadastrar Novo Usuário</h3>
+                            
+                            <div class="form-group">
+                                <label for="user-photo-input">Foto do Usuário</label>
+                                <input type="file" id="user-photo-input" accept="image/*">
+                                <div class="user-photo-preview" style="margin-top: 15px;">
+                                    <img id="user-photo-preview" src="" alt="Preview" style="display: none; max-width: 200px; max-height: 200px; border-radius: 10px; border: 2px solid #e0e0e0;">
+                                </div>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-name">Nome *</label>
+                                <input type="text" id="user-name" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-username">Usuário *</label>
+                                <input type="text" id="user-username" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-password">Senha *</label>
+                                <input type="password" id="user-password" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-birthdate">Data de Nascimento *</label>
+                                <input type="date" id="user-birthdate" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-phone">Telefone *</label>
+                                <input type="tel" id="user-phone" placeholder="(00) 00000-0000" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-email">Email *</label>
+                                <input type="email" id="user-email" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="user-access-level">Controle de Acesso *</label>
+                                <select id="user-access-level" required>
+                                    <option value="">Selecione...</option>
+                                    <option value="admin">Administrador</option>
+                                    <option value="funcionario">Funcionário</option>
+                                </select>
+                            </div>
+
+                            <button type="submit" class="btn btn-primary">Salvar Usuário</button>
+                            <button type="button" class="btn btn-secondary" onclick="showUsersListView()" style="margin-top: 15px; margin-left: 10px;">← Voltar</button>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </div>
+
+    <!-- Modal para Editar Usuário -->
+    <div id="edit-user-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditUserModal()">&times;</span>
+            <h2>Editar Usuário</h2>
+            <form id="edit-user-form" class="form">
+                <input type="hidden" id="edit-user-id">
+                
+                <div class="form-group">
+                    <label for="edit-user-photo-input">Foto do Usuário</label>
+                    <input type="file" id="edit-user-photo-input" accept="image/*">
+                    <div class="user-photo-preview" style="margin-top: 15px;">
+                        <img id="edit-user-photo-preview" src="" alt="Preview" style="display: none; max-width: 200px; max-height: 200px; border-radius: 10px; border: 2px solid #e0e0e0;">
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-name">Nome *</label>
+                    <input type="text" id="edit-user-name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-username">Usuário *</label>
+                    <input type="text" id="edit-user-username" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-password">Nova Senha (deixe em branco para manter a atual)</label>
+                    <input type="password" id="edit-user-password">
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-birthdate">Data de Nascimento *</label>
+                    <input type="date" id="edit-user-birthdate" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-phone">Telefone *</label>
+                    <input type="tel" id="edit-user-phone" placeholder="(00) 00000-0000" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-email">Email *</label>
+                    <input type="email" id="edit-user-email" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-user-access-level">Controle de Acesso *</label>
+                    <select id="edit-user-access-level" required>
+                        <option value="">Selecione...</option>
+                        <option value="admin">Administrador</option>
+                        <option value="funcionario">Funcionário</option>
+                    </select>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+                <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()" style="margin-top: 15px; margin-left: 10px;">Cancelar</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Editar Cliente -->
+    <div id="edit-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEditModal()">&times;</span>
+            <h2>Editar Cliente</h2>
+            <form id="edit-client-form" class="form">
+                <input type="hidden" id="edit-client-id">
+                
+                <div class="form-group">
+                    <label for="edit-client-photo-input">Foto do Cliente</label>
+                    <input type="file" id="edit-client-photo-input" accept="image/*">
+                    <div class="photo-preview">
+                        <img id="edit-client-photo-preview" src="" alt="Preview da Foto" style="display: none;">
+                    </div>
+                </div>
+                
+                <div class="form-group">
+                    <label for="edit-client-name">Nome *</label>
+                    <input type="text" id="edit-client-name" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-client-cpf">CPF</label>
+                    <input type="text" id="edit-client-cpf" placeholder="000.000.000-00">
+                </div>
+
+                <div class="form-group">
+                    <label for="edit-client-birthdate">Data de Nascimento *</label>
+                    <input type="date" id="edit-client-birthdate" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Telefones *</label>
+                    <div id="edit-phones-container"></div>
+                    <button type="button" class="btn btn-secondary" onclick="addEditField('phone')">+ Adicionar Telefone</button>
+                </div>
+
+                <div class="form-group">
+                    <label>Emails *</label>
+                    <div id="edit-emails-container"></div>
+                    <button type="button" class="btn btn-secondary" onclick="addEditField('email')">+ Adicionar Email</button>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal para Selecionar Cliente para Enviar Felicitações -->
+    <div id="select-client-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSelectClientModal()">&times;</span>
+            <h2>Selecionar Cliente para Enviar Felicitações</h2>
+            <div id="select-clients-list" class="select-clients-list"></div>
+        </div>
+    </div>
+
+    <!-- Modal para Escolher Método de Envio -->
+    <div id="send-method-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeSendMethodModal()">&times;</span>
+            <h2>Escolher Método de Envio</h2>
+            <p>Como deseja enviar as felicitações para <strong id="selected-client-name"></strong>?</p>
+            <div class="send-method-buttons">
+                <button class="btn btn-whatsapp" onclick="handleSendMethod('whatsapp')">
+                    📱 WhatsApp
+                </button>
+                <button class="btn btn-email" onclick="handleSendMethod('email')">
+                    ✉️ Email
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Escolher Ação do Email -->
+    <div id="email-action-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeEmailActionModal()">&times;</span>
+            <h2>Escolher Ação</h2>
+            <p>O que deseja fazer com o email de <strong id="email-client-name"></strong>?</p>
+            <div class="email-action-buttons">
+                <button class="btn btn-copy" onclick="handleEmailAction('copy')">
+                    📋 Copiar Email
+                </button>
+                <button class="btn btn-gmail" onclick="handleEmailAction('gmail')">
+                    📧 Abrir Gmail
+                </button>
+            </div>
+        </div>
+    </div>
+
+        <!-- Seção Configurações -->
+        <section id="settings" class="section">
+            <h2>Configurações do Sistema</h2>
+            <div class="settings-container">
+                <div class="settings-card">
+                    <h3>Personalização do Tema</h3>
+                    <div class="form-group">
+                        <label for="theme-color-picker">Cor Principal do Sistema:</label>
+                        <div class="color-picker-container">
+                            <div class="color-picker-row">
+                                <input type="color" id="theme-color-picker" value="#667eea">
+                                <span class="color-preview" id="color-preview">#667eea</span>
+                            </div>
+                            <div class="color-actions">
+                                <button type="button" class="btn btn-primary" onclick="saveThemeColor()">💾 Salvar Alteração</button>
+                                <button type="button" class="btn btn-secondary" onclick="resetThemeColor()">🔄 Restaurar Padrão</button>
+                            </div>
+                        </div>
+                        <p class="color-help">Selecione a cor desejada e clique em "Salvar Alteração" para aplicar ao sistema.</p>
+                    </div>
+                </div>
+            </div>
+            <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 20px;">← Voltar</button>
+        </section>
+
+        <!-- Seção Log do Sistema -->
+        <section id="system-log" class="section">
+            <div class="log-container">
+                <div class="log-header">
+                    <h2>Log do Sistema</h2>
+                    <div class="log-controls">
+                        <button class="btn btn-secondary" onclick="showLogSettings()">⚙️ Configurações</button>
+                        <button class="btn btn-secondary" onclick="clearOldLogs()">🗑️ Limpar Logs Antigos</button>
+                    </div>
+                </div>
+                
+                <!-- Filtros -->
+                <div class="log-filters">
+                    <div class="form-group">
+                        <label for="log-filter-date">Filtrar por Data:</label>
+                        <input type="date" id="log-filter-date">
+                    </div>
+                    <div class="form-group">
+                        <label for="log-filter-user">Filtrar por Usuário:</label>
+                        <select id="log-filter-user">
+                            <option value="">Todos os usuários</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="log-filter-action">Filtrar por Ação:</label>
+                        <select id="log-filter-action">
+                            <option value="">Todas as ações</option>
+                            <option value="login">Login</option>
+                            <option value="logout">Logout</option>
+                            <option value="create_client">Criar Cliente</option>
+                            <option value="edit_client">Editar Cliente</option>
+                            <option value="delete_client">Excluir Cliente</option>
+                            <option value="create_user">Criar Usuário</option>
+                            <option value="edit_user">Editar Usuário</option>
+                            <option value="delete_user">Excluir Usuário</option>
+                            <option value="send_greeting">Enviar Felicitação</option>
+                            <option value="backup">Backup</option>
+                            <option value="restore">Restaurar</option>
+                            <option value="license_activate">Ativar Licença</option>
+                        </select>
+                    </div>
+                    <button class="btn btn-primary" onclick="applyLogFilters()">🔍 Filtrar</button>
+                    <button class="btn btn-secondary" onclick="clearLogFilters()">Limpar Filtros</button>
+                </div>
+                
+                <!-- Lista de Logs -->
+                <div id="logs-list" class="logs-list">
+                    <!-- Logs serão carregados aqui -->
+                </div>
+            </div>
+        </section>
+        
+        <!-- Modal de Configurações de Log -->
+        <div id="log-settings-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeLogSettings()">&times;</span>
+                <h2>Configurações de Log</h2>
+                <div class="form-group">
+                    <label for="log-retention-days">Tempo de Retenção dos Logs:</label>
+                    <select id="log-retention-days">
+                        <option value="3">3 dias</option>
+                        <option value="7">7 dias</option>
+                        <option value="30" selected>30 dias (padrão)</option>
+                        <option value="90">90 dias</option>
+                        <option value="365">1 ano</option>
+                    </select>
+                </div>
+                <button class="btn btn-primary" onclick="saveLogSettings()">Salvar Configurações</button>
+                <button class="btn btn-secondary" onclick="closeLogSettings()" style="margin-left: 10px;">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
+
