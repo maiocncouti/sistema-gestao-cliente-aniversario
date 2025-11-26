@@ -1904,9 +1904,20 @@ function applyButtonStyles() {
     const bg = buttonStyleSettings.transparentBg ? 'transparent' : buttonStyleSettings.bgColor;
     const borderColor = buttonStyleSettings.borderEnabled ? buttonStyleSettings.borderColor : 'transparent';
 
+    // Aplicar estilos aos botões de navegação
     document.documentElement.style.setProperty('--nav-btn-bg', bg);
     document.documentElement.style.setProperty('--nav-btn-text', buttonStyleSettings.textColor);
     document.documentElement.style.setProperty('--nav-btn-border-color', borderColor);
+
+    // Aplicar estilos aos botões do usuário (Trocar e Sair)
+    document.documentElement.style.setProperty('--user-btn-bg', bg);
+    document.documentElement.style.setProperty('--user-btn-text', buttonStyleSettings.textColor);
+    document.documentElement.style.setProperty('--user-btn-border-color', borderColor);
+
+    // Aplicar estilos ao card do usuário
+    document.documentElement.style.setProperty('--user-card-bg', bg);
+    document.documentElement.style.setProperty('--user-card-border-color', borderColor);
+    document.documentElement.style.setProperty('--user-name-text', buttonStyleSettings.textColor);
 }
 
 // Atualizar estatísticas

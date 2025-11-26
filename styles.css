@@ -13,6 +13,12 @@
     --nav-btn-bg: rgba(255, 255, 255, 0.2);
     --nav-btn-text: #ffffff;
     --nav-btn-border-color: rgba(255, 255, 255, 0.3);
+    --user-btn-bg: rgba(255, 255, 255, 0.2);
+    --user-btn-text: #ffffff;
+    --user-btn-border-color: rgba(255, 255, 255, 0.3);
+    --user-card-bg: rgba(255, 255, 255, 0.15);
+    --user-card-border-color: rgba(255, 255, 255, 0.2);
+    --user-name-text: #ffffff;
 }
 
 body {
@@ -101,10 +107,10 @@ body {
     display: flex;
     align-items: center;
     gap: 15px;
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--user-card-bg);
     padding: 10px 20px;
     border-radius: 8px;
-    border: 2px solid rgba(255, 255, 255, 0.2);
+    border: 2px solid var(--user-card-border-color);
 }
 
 .user-avatar {
@@ -116,7 +122,7 @@ body {
 }
 
 .user-name-display {
-    color: white;
+    color: var(--user-name-text);
     font-weight: 600;
     font-size: 16px;
 }
@@ -128,9 +134,9 @@ body {
 
 .btn-user-action {
     padding: 8px 16px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    color: white;
+    background: var(--user-btn-bg);
+    border: 2px solid var(--user-btn-border-color);
+    color: var(--user-btn-text);
     border-radius: 6px;
     cursor: pointer;
     font-size: 14px;
@@ -1479,9 +1485,18 @@ body {
     margin-bottom: 20px;
 }
 
+.settings-card h2 {
+    color: var(--primary-color);
+    margin-bottom: 20px;
+    font-size: 1.8em;
+    border-bottom: 2px solid #e0e0e0;
+    padding-bottom: 15px;
+}
+
 .settings-card h3 {
     color: var(--primary-color);
     margin-bottom: 20px;
+    margin-top: 20px;
     font-size: 1.4em;
     border-bottom: 2px solid #e0e0e0;
     padding-bottom: 15px;
