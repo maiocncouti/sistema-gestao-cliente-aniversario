@@ -5,6 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Sistema de Gestão de Clientes</title>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -50,11 +52,18 @@
             <!-- Tela de Login (mostra quando não logado) -->
             <div id="login-screen" class="login-screen" style="display: none;">
                 <div class="login-container">
-                    <h2>Login</h2>
+                    <h2 id="login-title">Login</h2>
                     <form id="login-form" class="form">
-                        <div class="form-group">
+                        <div class="form-group" id="username-group">
                             <label for="login-username">Usuário *</label>
                             <input type="text" id="login-username" required autocomplete="username">
+                        </div>
+                        <div class="form-group" id="selected-user-info" style="display: none;">
+                            <label>Usuário Selecionado:</label>
+                            <div style="padding: 10px; background: #f0f4ff; border-radius: 8px; margin-bottom: 15px;">
+                                <strong id="selected-user-name"></strong>
+                                <button type="button" class="btn btn-secondary" onclick="cancelUserSwitch()" style="margin-left: 10px; padding: 5px 10px; font-size: 12px;">Cancelar</button>
+                            </div>
                         </div>
                         <div class="form-group">
                             <label for="login-password">Senha *</label>
@@ -77,9 +86,27 @@
                         <p>Clientes Cadastrados</p>
                     </div>
                     <div class="stat-card">
-                        <h3 id="today-birthdays">0</h3>
-                        <p>Aniversários Hoje</p>
+                        <h3>Aniversários</h3>
+                        <div class="birthday-stats">
+                            <div class="birthday-stat-item">
+                                <span class="birthday-stat-label">Hoje</span>
+                                <span id="birthday-count-today" class="birthday-stat-value">0</span>
+                            </div>
+                            <div class="birthday-stat-item" id="birthday-stat-range1" style="display: none;">
+                                <span id="birthday-label-range1" class="birthday-stat-label">7 dias</span>
+                                <span id="birthday-count-range1" class="birthday-stat-value">0</span>
+                            </div>
+                            <div class="birthday-stat-item" id="birthday-stat-range2" style="display: none;">
+                                <span id="birthday-label-range2" class="birthday-stat-label">30 dias</span>
+                                <span id="birthday-count-range2" class="birthday-stat-value">0</span>
+                            </div>
+                        </div>
                     </div>
+                </div>
+
+                <!-- Lista de Aniversariantes de Hoje no Dashboard -->
+                <div id="today-birthdays-dashboard" class="today-birthdays-dashboard">
+                    <!-- Cards de aniversariantes de hoje serão carregados via JavaScript -->
                 </div>
             </div>
         </section>
@@ -174,10 +201,21 @@
             <form id="company-form" class="form">
                 <div class="form-group">
                     <label for="company-logo-input">Logo da Empresa</label>
-                    <input type="file" id="company-logo-input" accept="image/*">
+                    <input type="file" id="company-logo-input" accept="image/jpeg,image/jpg,image/png">
                     <div class="logo-preview">
                         <img id="logo-preview" src="" alt="Preview do Logo" style="display: none;">
                     </div>
+                    <button type="button" class="btn btn-danger" id="remove-logo-btn" onclick="removeCompanyLogo()" style="margin-top: 10px; display: none;">🗑️ Remover Logo</button>
+                </div>
+
+                <div class="form-group">
+                    <label for="company-header-image-input">Imagem de Fundo do Cabeçalho (opcional)</label>
+                    <input type="file" id="company-header-image-input" accept="image/jpeg,image/jpg,image/png">
+                    <div class="theme-bg-preview" id="company-header-preview">
+                        <span>Pré-visualização da imagem de fundo do cabeçalho.</span>
+                    </div>
+                    <p class="color-help">Formatos permitidos: JPG e PNG. A imagem será ajustada automaticamente para preencher a área laranja atrás da logo.</p>
+                    <button type="button" class="btn btn-danger" id="remove-header-bg-btn" onclick="removeCompanyHeaderBackground()" style="margin-top: 10px; display: none;">🗑️ Remover Fundo</button>
                 </div>
 
                 <div class="form-group">
@@ -213,14 +251,6 @@
                 <div class="form-group">
                     <label for="company-description">Descrição</label>
                     <textarea id="company-description" rows="4"></textarea>
-                </div>
-
-                <div class="form-group">
-                    <label for="support-image-input">Imagem de Suporte (JPG, PNG, etc)</label>
-                    <input type="file" id="support-image-input" accept="image/jpeg,image/jpg,image/png,image/gif,image/webp">
-                    <div class="support-image-preview" style="margin-top: 15px;">
-                        <img id="support-image-preview" src="" alt="Preview" style="display: none; max-width: 200px; max-height: 200px; border-radius: 10px; border: 2px solid #e0e0e0;">
-                    </div>
                 </div>
 
                 <button type="submit" class="btn btn-primary">Salvar Dados da Empresa</button>
@@ -282,8 +312,105 @@
                 
                 <div class="option-card" onclick="showSection('settings')">
                     <div class="option-icon">⚙️</div>
-                    <h3>Configurações</h3>
+                    <h3>Cor do Tema</h3>
                     <p>Personalize a aparência do sistema</p>
+                </div>
+
+                <div class="option-card" onclick="showSection('birthday-card-settings')">
+                    <div class="option-icon">🎂</div>
+                    <h3>Card de Aniversários</h3>
+                    <p>Configurar faixas de dias do card de aniversários</p>
+                </div>
+
+                <div class="option-card" onclick="showSection('button-settings')">
+                    <div class="option-icon">🔘</div>
+                    <h3>Definições dos Botões</h3>
+                    <p>Personalizar cores e bordas dos botões de navegação</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Configuração do Card de Aniversários -->
+        <section id="birthday-card-settings" class="section">
+            <h2>Configuração do Card de Aniversários</h2>
+            <div class="settings-container">
+                <div class="settings-card">
+                    <h3>Opções de Exibição</h3>
+                    <p style="margin-bottom: 15px;">O card de aniversários do painel inicial mostrará sempre a quantidade de aniversariantes de <strong>Hoje</strong>. Você pode adicionar até duas faixas extras configuráveis.</p>
+                    
+                    <form id="birthday-card-form" class="form">
+                        <div class="form-group">
+                            <label>Faixas exibidas no card:</label>
+                            <select id="birthday-card-mode">
+                                <option value="today">Somente Hoje</option>
+                                <option value="today_range1">Hoje + Faixa 1</option>
+                                <option value="today_range1_range2">Hoje + Faixa 1 + Faixa 2</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Faixa 1 (dias a partir de hoje, excluindo HOJE):</label>
+                            <input type="number" id="birthday-range1-days" min="1" max="365" value="7">
+                            <small>Exemplo: 7 dias = próximos 7 dias.</small>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Faixa 2 (dias a partir de hoje, excluindo HOJE):</label>
+                            <input type="number" id="birthday-range2-days" min="1" max="365" value="30">
+                            <small>Exemplo: 30 dias = próximos 30 dias.</small>
+                        </div>
+
+                        <button type="button" class="btn btn-primary" onclick="saveBirthdayCardSettings()">Salvar Configurações</button>
+                        <button type="button" class="btn btn-secondary" onclick="showSection('more-options')" style="margin-left: 10px;">← Voltar</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Definições dos Botões -->
+        <section id="button-settings" class="section">
+            <h2>Definições dos Botões</h2>
+            <div class="settings-container">
+                <div class="settings-card">
+                    <h3>Botões de Navegação (Início, Felicitações, Clientes, ...)</h3>
+                    <form id="button-settings-form" class="form">
+                        <div class="form-group">
+                            <label for="btn-text-color">Cor do Texto dos Botões:</label>
+                            <div class="color-picker-row">
+                                <input type="color" id="btn-text-color">
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="btn-bg-color">Cor de Fundo dos Botões:</label>
+                            <div class="color-picker-row">
+                                <input type="color" id="btn-bg-color">
+                            </div>
+                            <div style="margin-top: 8px;">
+                                <label>
+                                    <input type="checkbox" id="btn-bg-transparent">
+                                    Deixar fundo transparente
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="btn-border-color">Cor da Borda:</label>
+                            <div class="color-picker-row">
+                                <input type="color" id="btn-border-color">
+                            </div>
+                            <div style="margin-top: 8px;">
+                                <label>
+                                    <input type="checkbox" id="btn-border-enabled" checked>
+                                    Mostrar borda
+                                </label>
+                            </div>
+                        </div>
+
+                        <button type="button" class="btn btn-primary" onclick="saveButtonSettings()">💾 Salvar Alterações</button>
+                        <button type="button" class="btn btn-danger" onclick="resetButtonSettings()" style="margin-left: 10px;">🔄 Restaurar Padrão</button>
+                        <button type="button" class="btn btn-secondary" onclick="showSection('more-options')" style="margin-left: 10px;">← Voltar</button>
+                    </form>
                 </div>
             </div>
         </section>
@@ -631,23 +758,33 @@
 
         <!-- Seção Configurações -->
         <section id="settings" class="section">
-            <h2>Configurações do Sistema</h2>
+            <h2>Configurações do Tema</h2>
             <div class="settings-container">
                 <div class="settings-card">
                     <h3>Personalização do Tema</h3>
-                    <div class="form-group">
-                        <label for="theme-color-picker">Cor Principal do Sistema:</label>
-                        <div class="color-picker-container">
-                            <div class="color-picker-row">
-                                <input type="color" id="theme-color-picker" value="#667eea">
-                                <span class="color-preview" id="color-preview">#667eea</span>
-                            </div>
-                            <div class="color-actions">
-                                <button type="button" class="btn btn-primary" onclick="saveThemeColor()">💾 Salvar Alteração</button>
-                                <button type="button" class="btn btn-secondary" onclick="resetThemeColor()">🔄 Restaurar Padrão</button>
-                            </div>
+                <div class="form-group">
+                    <label for="theme-color-picker">Cor Principal do Sistema:</label>
+                    <div class="color-picker-container">
+                        <div class="color-picker-row">
+                            <input type="color" id="theme-color-picker" value="#667eea">
+                            <span class="color-preview" id="color-preview">#667eea</span>
                         </div>
-                        <p class="color-help">Selecione a cor desejada e clique em "Salvar Alteração" para aplicar ao sistema.</p>
+                    </div>
+                    <p class="color-help">Selecione a cor desejada. Ela será aplicada somente quando você clicar em "Salvar Alteração".</p>
+                </div>
+
+                    <div class="form-group">
+                        <label for="theme-background-input">Imagem de Fundo (opcional):</label>
+                        <input type="file" id="theme-background-input" accept="image/jpeg,image/jpg,image/png">
+                        <div class="theme-bg-preview" id="theme-bg-preview">
+                            <span>Pré-visualização do fundo (a imagem será ajustada automaticamente para preencher).</span>
+                        </div>
+                        <p class="color-help">Formatos permitidos: JPG e PNG. Você pode arrastar a imagem dentro da pré-visualização para reposicioná-la. O fundo será atualizado somente ao clicar em "Salvar Alteração".</p>
+                    </div>
+
+                    <div class="color-actions">
+                        <button type="button" class="btn btn-primary" onclick="saveThemeColor()">💾 Salvar Alteração</button>
+                        <button type="button" class="btn btn-secondary" onclick="resetThemeColor()">🔄 Restaurar Padrão</button>
                     </div>
                 </div>
             </div>
@@ -723,6 +860,34 @@
                 </div>
                 <button class="btn btn-primary" onclick="saveLogSettings()">Salvar Configurações</button>
                 <button class="btn btn-secondary" onclick="closeLogSettings()" style="margin-left: 10px;">Cancelar</button>
+            </div>
+        </div>
+
+        <!-- Modal para Selecionar Usuário (Trocar) -->
+        <div id="select-user-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeSelectUserModal()">&times;</span>
+                <h2>Selecionar Usuário</h2>
+                <p>Escolha o usuário para fazer login:</p>
+                <div id="users-select-list" class="select-clients-list" style="max-height: 400px; overflow-y: auto; margin-top: 20px;">
+                    <!-- Lista de usuários será preenchida via JavaScript -->
+                </div>
+                <button class="btn btn-secondary" onclick="closeSelectUserModal()" style="margin-top: 20px;">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal de Cropping de Imagem -->
+    <div id="image-crop-modal" class="modal">
+        <div class="modal-content crop-modal-content">
+            <span class="close" onclick="closeCropModal()">&times;</span>
+            <h2 id="crop-modal-title">Ajustar Imagem</h2>
+            <div class="crop-container">
+                <img id="crop-image" src="" alt="Imagem para recortar">
+            </div>
+            <div class="crop-controls">
+                <button type="button" class="btn btn-secondary" onclick="closeCropModal()">Cancelar</button>
+                <button type="button" class="btn btn-primary" onclick="confirmCrop()">✓ Confirmar</button>
             </div>
         </div>
     </div>

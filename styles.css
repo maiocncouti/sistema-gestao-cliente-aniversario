@@ -8,11 +8,20 @@
 :root {
     --primary-color: #667eea;
     --secondary-color: #764ba2;
+    --background-image: none;
+    --company-header-image: none;
+    --nav-btn-bg: rgba(255, 255, 255, 0.2);
+    --nav-btn-text: #ffffff;
+    --nav-btn-border-color: rgba(255, 255, 255, 0.3);
 }
 
 body {
     font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    background: var(--background-image), linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    background-repeat: no-repeat;
+    background-size: cover;
+    background-attachment: fixed;
+    background-position: center center;
     min-height: 100vh;
     padding: 20px;
     color: #333;
@@ -29,9 +38,13 @@ body {
 
 /* Header */
 .header {
-    background: linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    background: var(--company-header-image), linear-gradient(135deg, var(--primary-color) 0%, var(--secondary-color) 100%);
+    background-size: auto, auto;
+    background-repeat: repeat, no-repeat;
+    background-position: center, center;
     color: white;
     padding: 30px;
+    min-height: 150px;
 }
 
 .header-top {
@@ -59,9 +72,7 @@ body {
     width: 270px;
     height: 270px;
     border-radius: 10px;
-    object-fit: contain;
-    background: white;
-    padding: 5px;
+    object-fit: cover;
 }
 
 #company-name {
@@ -241,9 +252,9 @@ body {
 
 .nav-btn {
     padding: 12px 24px;
-    background: rgba(255, 255, 255, 0.2);
-    border: 2px solid rgba(255, 255, 255, 0.3);
-    color: white;
+    background: var(--nav-btn-bg);
+    border: 2px solid var(--nav-btn-border-color);
+    color: var(--nav-btn-text);
     border-radius: 8px;
     cursor: pointer;
     font-size: 16px;
@@ -322,15 +333,81 @@ body {
 }
 
 .stat-card h3 {
-    font-size: 4em;
-    margin-bottom: 15px;
+    font-size: 2em;
+    margin-bottom: 10px;
     font-weight: bold;
 }
 
 .stat-card p {
-    font-size: 1.3em;
+    font-size: 1.1em;
     opacity: 0.9;
     font-weight: 500;
+}
+
+/* Dashboard - Aniversariantes de Hoje */
+.today-birthdays-dashboard {
+    margin-top: 30px;
+}
+
+.today-birthdays-dashboard h3 {
+    text-align: center;
+    color: var(--primary-color);
+    margin-bottom: 20px;
+}
+
+/* Estatísticas de aniversários no card do topo */
+.birthday-stats {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.birthday-stat-item {
+    flex: 1;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: center;
+}
+
+.birthday-stat-label {
+    display: block;
+    font-size: 0.9em;
+    color: #f0f0f0;
+    margin-bottom: 4px;
+}
+
+.birthday-stat-value {
+    display: block;
+    font-size: 1.4em;
+    font-weight: bold;
+    color: #ffffff;
+}
+
+/* Pré-visualização da imagem de fundo do tema */
+.theme-bg-preview {
+    margin-top: 15px;
+    border-radius: 12px;
+    border: 2px dashed #e0e0e0;
+    height: 160px;
+    background-color: #f8f9fa;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #777;
+    font-size: 14px;
+    text-align: center;
+    padding: 10px;
+}
+
+/* Ajuste de tamanho dos cards no dashboard (mais baixos) */
+.today-birthdays-dashboard .client-card {
+    min-height: 0;
+    padding: 15px 20px;
 }
 
 /* Forms */
@@ -468,13 +545,13 @@ body {
     background: #f8f9fa;
     border: 2px solid #e0e0e0;
     border-radius: 12px;
-    padding: 25px;
+    padding: 18px 20px;
     transition: all 0.3s ease;
     position: relative;
     cursor: pointer;
     display: flex;
     flex-direction: column;
-    min-height: 280px;
+    min-height: 200px;
     margin-bottom: 20px;
 }
 
@@ -1429,7 +1506,10 @@ body {
     flex-wrap: wrap;
 }
 
-#theme-color-picker {
+#theme-color-picker,
+#btn-text-color,
+#btn-bg-color,
+#btn-border-color {
     width: 60px;
     height: 40px;
     border: 2px solid #e0e0e0;
@@ -1439,12 +1519,18 @@ body {
     padding: 0;
 }
 
-#theme-color-picker::-webkit-color-swatch-wrapper {
+#theme-color-picker::-webkit-color-swatch-wrapper,
+#btn-text-color::-webkit-color-swatch-wrapper,
+#btn-bg-color::-webkit-color-swatch-wrapper,
+#btn-border-color::-webkit-color-swatch-wrapper {
     padding: 0;
     border-radius: 6px;
 }
 
-#theme-color-picker::-webkit-color-swatch {
+#theme-color-picker::-webkit-color-swatch,
+#btn-text-color::-webkit-color-swatch,
+#btn-bg-color::-webkit-color-swatch,
+#btn-border-color::-webkit-color-swatch {
     border: none;
     border-radius: 6px;
 }
@@ -1466,5 +1552,54 @@ body {
     font-size: 14px;
     margin-top: 10px;
     font-style: italic;
+}
+
+/* Modal de Cropping */
+.crop-modal-content {
+    max-width: 90%;
+    max-height: 90vh;
+    width: 800px;
+}
+
+.crop-container {
+    width: 100%;
+    max-height: 60vh;
+    margin: 20px 0;
+    background: #f0f0f0;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.crop-container img {
+    max-width: 100%;
+    max-height: 60vh;
+    display: block;
+}
+
+.crop-controls {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #e74c3c 0%, #c0392b 100%);
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 16px;
+    font-weight: bold;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.btn-danger:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
 }
 

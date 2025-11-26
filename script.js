@@ -11,7 +11,8 @@ let companyData = {
     ownerBirthdate: savedCompanyData.ownerBirthdate || '',
     address: savedCompanyData.address || '',
     description: savedCompanyData.description || '',
-    supportImage: savedCompanyData.supportImage || ''
+    supportImage: savedCompanyData.supportImage || '',
+    headerImage: savedCompanyData.headerImage || ''
 };
 let sentGreetings = JSON.parse(localStorage.getItem('sentGreetings')) || {}; // {clientId: timestamp}
 let selectedClientId = null;
@@ -24,6 +25,7 @@ let usedAnnualKeys = JSON.parse(localStorage.getItem('usedAnnualKeys')) || {}; /
 let users = JSON.parse(localStorage.getItem('users')) || [];
 let currentUser = JSON.parse(localStorage.getItem('currentUser')) || null;
 let editingUserId = null;
+let selectedUserForSwitch = null; // Usuário selecionado para troca (apenas senha será solicitada)
 
 // Sistema de Logs
 let systemLogs = JSON.parse(localStorage.getItem('systemLogs')) || [];
@@ -31,6 +33,22 @@ let logRetentionDays = parseInt(localStorage.getItem('logRetentionDays')) || 30;
 
 // Controle de remoção de clientes na tela de felicitações (por ano)
 let removedGreetingClients = JSON.parse(localStorage.getItem('removedGreetingClients')) || {}; // {2025: {clientId: true}}
+
+// Configurações do card de aniversários do dashboard
+let birthdayCardSettings = JSON.parse(localStorage.getItem('birthdayCardSettings')) || {
+    mode: 'today_range1_range2', // 'today', 'today_range1', 'today_range1_range2'
+    range1Days: 7,
+    range2Days: 30
+};
+
+// Configurações dos botões de navegação
+let buttonStyleSettings = JSON.parse(localStorage.getItem('buttonStyleSettings')) || {
+    textColor: '#ffffff',
+    bgColor: 'rgba(255,255,255,0.2)',
+    transparentBg: false,
+    borderColor: 'rgba(255,255,255,0.3)',
+    borderEnabled: true
+};
 
 // Timeout de sessão (5 minutos em milissegundos)
 const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutos
@@ -568,13 +586,23 @@ document.addEventListener('DOMContentLoaded', () => {
       document.addEventListener('mousemove', updateLastActivity);
       
       // Carregar tema padrão na inicialização (antes do login)
+      // O checkLoginStatus() irá carregar o tema do usuário se ele estiver logado
       applyDefaultTheme();
+      
+      // Após verificar o login, carregar tema do usuário se estiver logado
+      setTimeout(() => {
+          if (currentUser && currentUser.username) {
+              loadUserTheme();
+              setupThemeColorPicker();
+          }
+      }, 100);
   });
 
 // Inicializar aplicação
 function initializeApp() {
     updateStats();
     updateCompanyHeader();
+    applyButtonStyles();
 }
 
 // Configurar event listeners
@@ -586,6 +614,33 @@ function setupEventListeners() {
             showSection(section);
         });
     });
+
+    // Cards do dashboard (Clientes Cadastrados e Aniversários Hoje)
+    const totalClientsCard = document.querySelector('.stat-card:nth-child(1)');
+    const todayBirthdaysCard = document.querySelector('.stat-card:nth-child(2)');
+
+    if (totalClientsCard) {
+        totalClientsCard.style.cursor = 'pointer';
+        totalClientsCard.addEventListener('click', () => {
+            if (isLicenseExpired()) {
+                showSection('license');
+                return;
+            }
+            showSection('all-clients');
+            showClientsListView();
+        });
+    }
+
+    if (todayBirthdaysCard) {
+        todayBirthdaysCard.style.cursor = 'pointer';
+        todayBirthdaysCard.addEventListener('click', () => {
+            if (isLicenseExpired()) {
+                showSection('license');
+                return;
+            }
+            showSection('greetings');
+        });
+    }
 
     // Formulário de cadastro de cliente
     document.getElementById('client-form').addEventListener('submit', handleClientSubmit);
@@ -601,9 +656,20 @@ function setupEventListeners() {
 
     // Upload de logo
     document.getElementById('company-logo-input').addEventListener('change', handleLogoUpload);
+
+    // Upload de imagem de fundo do cabeçalho da empresa
+    const companyHeaderInput = document.getElementById('company-header-image-input');
+    if (companyHeaderInput) {
+        companyHeaderInput.addEventListener('change', handleCompanyHeaderImageUpload);
+    }
     
-    // Upload de imagem de suporte
-    document.getElementById('support-image-input').addEventListener('change', handleSupportImageUpload);
+    // Removido: Upload de imagem de suporte
+
+    // Upload de imagem de fundo do tema
+    const themeBackgroundInput = document.getElementById('theme-background-input');
+    if (themeBackgroundInput) {
+        themeBackgroundInput.addEventListener('change', handleThemeBackgroundUpload);
+    }
     
     // Upload de foto do cliente
     document.getElementById('client-photo-input').addEventListener('change', handleClientPhotoUpload);
@@ -662,6 +728,16 @@ function setupEventListeners() {
     if (editUserModal) {
         editUserModal.addEventListener('click', (e) => {
             if (e.target.id === 'edit-user-modal') closeEditUserModal();
+        });
+    }
+    
+    // Fechar modal de seleção de usuários ao clicar fora
+    const selectUserModal = document.getElementById('select-user-modal');
+    if (selectUserModal) {
+        selectUserModal.addEventListener('click', (e) => {
+            if (e.target.id === 'select-user-modal') {
+                closeSelectUserModal();
+            }
         });
     }
     
@@ -749,15 +825,22 @@ function showSection(sectionId) {
         updateSupportImage();
     } else if (sectionId === 'users') {
         showUsersListView();
+    } else if (sectionId === 'settings') {
+        // Configurar o seletor de cor quando a seção de configurações for aberta
+        setupThemeColorPicker();
         loadUsers();
     } else if (sectionId === 'system-log') {
         loadSystemLogs();
         loadUsersForLogFilter();
     } else if (sectionId === 'more-options') {
         updateMoreOptionsVisibility();
-    } else if (sectionId === 'settings') {
-        // Configurar seletor de cor quando entrar na seção de configurações
-        setTimeout(setupThemeColorPicker, 100);
+    } else if (sectionId === 'birthday-card-settings') {
+        loadBirthdayCardSettingsIntoForm();
+    } else if (sectionId === 'button-settings') {
+        loadButtonSettingsForm();
+    } else if (sectionId === 'company') {
+        loadCompanyData();
+        updateCompanyHeader();
     }
     
     // Atualizar visibilidade dos menus de "Mais Opções" sempre que mudar de seção
@@ -792,6 +875,30 @@ function updateMoreOptionsVisibility() {
             card.style.display = 'block';
         }
     });
+}
+
+// Controlar visibilidade dos menus de navegação e botões de sessão
+function updateMenuVisibility() {
+    const navMenu = document.querySelector('.nav-menu');
+    const userInfoHeader = document.getElementById('user-info-header');
+    
+    // Se não há usuário logado (logout total) -> esconder tudo
+    if (!currentUser) {
+        if (navMenu) navMenu.style.display = 'none';
+        if (userInfoHeader) userInfoHeader.style.display = 'none';
+        return;
+    }
+    
+    // Se está em modo de troca (pedindo senha) -> esconder TUDO (menus e botões de sessão)
+    if (selectedUserForSwitch) {
+        if (navMenu) navMenu.style.display = 'none';
+        if (userInfoHeader) userInfoHeader.style.display = 'none';
+        return;
+    }
+    
+    // Se está logado normalmente -> mostrar tudo
+    if (navMenu) navMenu.style.display = 'flex';
+    if (userInfoHeader) userInfoHeader.style.display = 'flex';
 }
 
 // Adicionar campo dinâmico (telefone ou email)
@@ -909,17 +1016,17 @@ function handleClientSubmit(e) {
         createdAt: new Date().toISOString()
     };
     
-    const photoInput = document.getElementById('client-photo-input');
-    if (photoInput.files && photoInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            client.photo = e.target.result;
-            saveClientFinal(client);
-        };
-        reader.readAsDataURL(photoInput.files[0]);
+    // Usar foto recortada se disponível, senão usar foto do preview
+    if (window._pendingClientPhoto) {
+        client.photo = window._pendingClientPhoto;
+        window._pendingClientPhoto = null;
     } else {
-        saveClientFinal(client);
+        const preview = document.getElementById('client-photo-preview');
+        if (preview && preview.src && preview.style.display !== 'none') {
+            client.photo = preview.src;
+        }
     }
+    saveClientFinal(client);
 }
 
 function saveClientFinal(client) {
@@ -1099,8 +1206,6 @@ function loadClients() {
                 ${client.cpf ? `<div class="client-info"><strong>CPF:</strong> ${client.cpf}</div>` : ''}
                 <div class="client-info"><strong>Data de Nascimento:</strong> ${formatDate(client.birthdate)}</div>
                 ${getBirthdayDaysIndicator(client)}
-                <div class="client-info"><strong>Telefones:</strong> ${phonesHtml}</div>
-                <div class="client-info"><strong>Emails:</strong> ${emailsHtml}</div>
                 <div class="client-actions" onclick="event.stopPropagation()">
                     <button class="btn btn-remove" onclick="removeClientFromGreetings('${client.id}', event)">Remover</button>
                 </div>
@@ -1138,8 +1243,6 @@ function loadAllClients() {
                 ${client.cpf ? `<div class="client-info"><strong>CPF:</strong> ${client.cpf}</div>` : ''}
                 <div class="client-info"><strong>Data de Nascimento:</strong> ${formatDate(client.birthdate)}</div>
                 ${getBirthdayDaysIndicator(client)}
-                <div class="client-info"><strong>Telefones:</strong> ${phonesHtml}</div>
-                <div class="client-info"><strong>Emails:</strong> ${emailsHtml}</div>
                 <div class="client-actions">
                     ${isAdmin() ? `
                         <button class="btn btn-edit" onclick="openEditModal('${client.id}')">Editar</button>
@@ -1235,19 +1338,18 @@ function handleEditClientSubmit(e) {
         return;
     }
     
-    const photoInput = document.getElementById('edit-client-photo-input');
+    // Usar foto recortada se disponível, senão manter foto atual ou usar preview
     let photo = clients[clientIndex].photo || '';
-    
-    if (photoInput.files && photoInput.files[0]) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            photo = e.target.result;
-            updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, photo);
-        };
-        reader.readAsDataURL(photoInput.files[0]);
+    if (window._pendingEditClientPhoto) {
+        photo = window._pendingEditClientPhoto;
+        window._pendingEditClientPhoto = null;
     } else {
-        updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, photo);
+        const preview = document.getElementById('edit-client-photo-preview');
+        if (preview && preview.src && preview.style.display !== 'none' && preview.src !== photo) {
+            photo = preview.src;
+        }
     }
+    updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, photo);
 }
 
 function updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, photo) {
@@ -1345,14 +1447,58 @@ function loadCompanyData() {
         supportImagePreview.src = companyData.supportImage;
         supportImagePreview.style.display = 'block';
     }
+    
+    // Carregar preview da imagem de fundo do cabeçalho
+    const headerPreview = document.getElementById('company-header-preview');
+    if (headerPreview && companyData.headerImage && companyData.headerImage.trim() !== '') {
+        headerPreview.style.backgroundImage = `url('${companyData.headerImage}')`;
+        headerPreview.style.backgroundSize = 'contain';
+        headerPreview.style.backgroundRepeat = 'repeat';
+        headerPreview.style.backgroundPosition = 'center';
+        headerPreview.innerHTML = '';
+        const removeHeaderBtn = document.getElementById('remove-header-bg-btn');
+        if (removeHeaderBtn) removeHeaderBtn.style.display = 'inline-block';
+    } else if (headerPreview) {
+        headerPreview.style.backgroundImage = 'none';
+        headerPreview.innerHTML = '<span>Pré-visualização da imagem de fundo do cabeçalho.</span>';
+        const removeHeaderBtn = document.getElementById('remove-header-bg-btn');
+        if (removeHeaderBtn) removeHeaderBtn.style.display = 'none';
+    }
+    
+    // Mostrar/ocultar botão de remover logo
+    const removeLogoBtn = document.getElementById('remove-logo-btn');
+    if (removeLogoBtn) {
+        removeLogoBtn.style.display = (companyData.logo && companyData.logo.trim() !== '') ? 'inline-block' : 'none';
+    }
 }
 
 // Atualizar header da empresa
 function updateCompanyHeader() {
     document.getElementById('company-name').textContent = companyData.name || 'Nome da Empresa';
-    if (companyData.logo) {
-        document.getElementById('company-logo').src = companyData.logo;
-        document.getElementById('company-logo').style.display = 'block';
+    const logoEl = document.getElementById('company-logo');
+    if (logoEl && companyData.logo) {
+        logoEl.src = companyData.logo;
+        logoEl.style.display = 'block';
+    }
+
+    // Aplicar imagem de fundo do cabeçalho da empresa, se existir
+    if (companyData.headerImage && companyData.headerImage.trim() !== '') {
+        document.documentElement.style.setProperty('--company-header-image', `url('${companyData.headerImage}')`);
+    } else {
+        document.documentElement.style.setProperty('--company-header-image', 'none');
+    }
+    
+    // Carregar preview da imagem de fundo do cabeçalho no formulário
+    const headerPreview = document.getElementById('company-header-preview');
+    if (headerPreview && companyData.headerImage && companyData.headerImage.trim() !== '') {
+        headerPreview.style.backgroundImage = `url('${companyData.headerImage}')`;
+        headerPreview.style.backgroundSize = 'contain';
+        headerPreview.style.backgroundRepeat = 'repeat';
+        headerPreview.style.backgroundPosition = 'center';
+        headerPreview.innerHTML = '';
+    } else if (headerPreview) {
+        headerPreview.style.backgroundImage = 'none';
+        headerPreview.innerHTML = '<span>Pré-visualização da imagem de fundo do cabeçalho.</span>';
     }
 }
 
@@ -1428,21 +1574,186 @@ function handleLogoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const logoData = event.target.result;
-        companyData.logo = logoData;
-        document.getElementById('company-logo').src = logoData;
+    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para logo
+    openCropModal(file, 'logo', 1, (croppedImageData) => {
+        companyData.logo = croppedImageData;
+        document.getElementById('company-logo').src = croppedImageData;
         document.getElementById('company-logo').style.display = 'block';
-        document.getElementById('logo-preview').src = logoData;
+        document.getElementById('logo-preview').src = croppedImageData;
         document.getElementById('logo-preview').style.display = 'block';
+        document.getElementById('remove-logo-btn').style.display = 'inline-block';
         saveCompanyData();
         updateCompanyHeader();
+        alert('Logo atualizado com sucesso!');
+    });
+}
+
+// Variáveis globais para cropping
+let currentCropper = null;
+let currentCropType = null;
+let currentCropCallback = null;
+
+// Abrir modal de cropping
+function openCropModal(file, cropType, aspectRatio, callback) {
+    if (!file) return;
+    
+    // Validar formato
+    if (!(file.type === 'image/jpeg' || file.type === 'image/jpg' || file.type === 'image/png')) {
+        alert('Formato inválido. Selecione uma imagem JPG ou PNG.');
+        return;
+    }
+    
+    currentCropType = cropType;
+    currentCropCallback = callback;
+    
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const imageSrc = event.target.result;
+        const cropImage = document.getElementById('crop-image');
+        const cropModal = document.getElementById('image-crop-modal');
+        const cropTitle = document.getElementById('crop-modal-title');
+        
+        // Definir título do modal
+        const titles = {
+            'logo': 'Ajustar Logo da Empresa',
+            'header-bg': 'Ajustar Fundo do Cabeçalho',
+            'client-photo': 'Ajustar Foto do Cliente',
+            'user-photo': 'Ajustar Foto do Usuário',
+            'theme-bg': 'Ajustar Fundo do Tema'
+        };
+        cropTitle.textContent = titles[cropType] || 'Ajustar Imagem';
+        
+        // Limpar cropper anterior se existir
+        if (currentCropper) {
+            currentCropper.destroy();
+            currentCropper = null;
+        }
+        
+        cropImage.src = imageSrc;
+        cropModal.style.display = 'block';
+        
+        // Inicializar cropper após a imagem carregar
+        cropImage.onload = () => {
+            currentCropper = new Cropper(cropImage, {
+                aspectRatio: aspectRatio,
+                viewMode: 1,
+                dragMode: 'move',
+                autoCropArea: 0.8,
+                restore: false,
+                guides: true,
+                center: true,
+                highlight: false,
+                cropBoxMovable: true,
+                cropBoxResizable: true,
+                toggleDragModeOnDblclick: false,
+                responsive: true,
+                minContainerWidth: 300,
+                minContainerHeight: 300
+            });
+        };
     };
+    
     reader.readAsDataURL(file);
 }
 
-// Manipular upload de imagem de suporte
+// Fechar modal de cropping
+function closeCropModal() {
+    const cropModal = document.getElementById('image-crop-modal');
+    cropModal.style.display = 'none';
+    
+    if (currentCropper) {
+        currentCropper.destroy();
+        currentCropper = null;
+    }
+    
+    currentCropType = null;
+    currentCropCallback = null;
+    
+    // Limpar inputs de arquivo
+    document.querySelectorAll('input[type="file"]').forEach(input => {
+        if (input.files.length > 0) {
+            input.value = '';
+        }
+    });
+}
+
+// Confirmar crop e processar imagem
+function confirmCrop() {
+    if (!currentCropper) {
+        alert('Erro: Cropper não inicializado.');
+        return;
+    }
+    
+    const canvas = currentCropper.getCroppedCanvas({
+        width: currentCropType === 'logo' ? 400 : (currentCropType === 'header-bg' ? 1200 : 800),
+        height: currentCropType === 'logo' ? 400 : (currentCropType === 'header-bg' ? 300 : 600),
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high'
+    });
+    
+    if (!canvas) {
+        alert('Erro ao processar imagem.');
+        return;
+    }
+    
+    // Converter para base64
+    const croppedImageData = canvas.toDataURL('image/jpeg', 0.9);
+    
+    // Chamar callback com a imagem recortada
+    if (currentCropCallback) {
+        currentCropCallback(croppedImageData);
+    }
+    
+    closeCropModal();
+}
+
+// Funções de remoção
+function removeCompanyLogo() {
+    if (confirm('Tem certeza que deseja remover o logo da empresa?')) {
+        companyData.logo = '';
+        saveCompanyData();
+        updateCompanyHeader();
+        document.getElementById('logo-preview').style.display = 'none';
+        document.getElementById('logo-preview').src = '';
+        document.getElementById('remove-logo-btn').style.display = 'none';
+        document.getElementById('company-logo-input').value = '';
+        alert('Logo removido com sucesso!');
+    }
+}
+
+function removeCompanyHeaderBackground() {
+    if (confirm('Tem certeza que deseja remover a imagem de fundo do cabeçalho?')) {
+        companyData.headerImage = '';
+        saveCompanyData();
+        updateCompanyHeader();
+        const preview = document.getElementById('company-header-preview');
+        if (preview) {
+            preview.style.backgroundImage = 'none';
+            preview.innerHTML = '<span>Pré-visualização da imagem de fundo do cabeçalho.</span>';
+        }
+        document.getElementById('remove-header-bg-btn').style.display = 'none';
+        document.getElementById('company-header-image-input').value = '';
+        alert('Imagem de fundo removida com sucesso!');
+    }
+}
+
+function resetButtonSettings() {
+    if (confirm('Tem certeza que deseja restaurar as configurações padrão dos botões?')) {
+        buttonStyleSettings = {
+            textColor: '#ffffff',
+            bgColor: 'rgba(255,255,255,0.2)',
+            transparentBg: false,
+            borderColor: 'rgba(255,255,255,0.3)',
+            borderEnabled: true
+        };
+        localStorage.setItem('buttonStyleSettings', JSON.stringify(buttonStyleSettings));
+        applyButtonStyles();
+        loadButtonSettingsForm();
+        alert('Configurações restauradas para o padrão!');
+    }
+}
+
+// Manipular upload de imagem de suporte (removido - função mantida para compatibilidade)
 function handleSupportImageUpload(e) {
     const file = e.target.files[0];
     if (!file) {
@@ -1544,38 +1855,231 @@ function saveCompanyData() {
     localStorage.setItem('companyData', JSON.stringify(companyData));
 }
 
+// Upload de imagem de fundo do cabeçalho da empresa
+function handleCompanyHeaderImageUpload(e) {
+    const file = e.target.files[0];
+    if (!file) {
+        // Se limpar o arquivo, remover imagem de cabeçalho
+        companyData.headerImage = '';
+        saveCompanyData();
+        updateCompanyHeader();
+        const preview = document.getElementById('company-header-preview');
+        if (preview) {
+            preview.style.backgroundImage = 'none';
+            preview.textContent = 'Pré-visualização da imagem de fundo do cabeçalho.';
+        }
+        return;
+    }
+
+    if (!(file.type === 'image/jpeg' || file.type === 'image/png')) {
+        alert('Formato inválido. Selecione uma imagem JPG ou PNG.');
+        e.target.value = '';
+        return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+        const imageData = event.target.result;
+        companyData.headerImage = imageData;
+        saveCompanyData();
+        updateCompanyHeader();
+
+        const preview = document.getElementById('company-header-preview');
+        if (preview) {
+            preview.style.backgroundImage = `url('${imageData}')`;
+            preview.style.backgroundSize = 'contain';
+            preview.style.backgroundRepeat = 'repeat';
+            preview.style.backgroundPosition = 'center';
+            preview.innerHTML = '';
+        }
+
+        alert('Imagem de fundo do cabeçalho aplicada com sucesso!');
+    };
+
+    reader.readAsDataURL(file);
+}
+
+// Aplicar estilos dos botões de navegação
+function applyButtonStyles() {
+    const bg = buttonStyleSettings.transparentBg ? 'transparent' : buttonStyleSettings.bgColor;
+    const borderColor = buttonStyleSettings.borderEnabled ? buttonStyleSettings.borderColor : 'transparent';
+
+    document.documentElement.style.setProperty('--nav-btn-bg', bg);
+    document.documentElement.style.setProperty('--nav-btn-text', buttonStyleSettings.textColor);
+    document.documentElement.style.setProperty('--nav-btn-border-color', borderColor);
+}
+
 // Atualizar estatísticas
 function updateStats() {
     document.getElementById('total-clients').textContent = clients.length;
-    
+
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    
-    const todayBirthdays = clients.filter(client => {
-        // Verificar se é aniversário HOJE (dia e mês iguais)
+
+    // Clientes aniversariantes HOJE
+    const todayBirthdayClients = clients.filter(client => {
         const birthDateStr = client.birthdate;
         if (!birthDateStr) return false;
-        
-        // Garantir que está no formato YYYY-MM-DD
+
         let cleanDateStr = birthDateStr;
         if (cleanDateStr.includes('T')) {
             cleanDateStr = cleanDateStr.split('T')[0];
         }
-        
-        const birthDateParts = cleanDateStr.split('-');
-        if (birthDateParts.length !== 3) return false;
-        
-        const birthMonth = parseInt(birthDateParts[1]) - 1; // Mês é 0-indexed
-        const birthDay = parseInt(birthDateParts[2]);
-        
-        const todayDay = today.getDate();
-        const todayMonth = today.getMonth();
-        
-        // Apenas contar se for exatamente hoje (dia e mês iguais)
-        return (todayDay === birthDay && todayMonth === birthMonth);
-    }).length;
-    
-    document.getElementById('today-birthdays').textContent = todayBirthdays;
+
+        const parts = cleanDateStr.split('-');
+        if (parts.length !== 3) return false;
+
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+
+        return today.getDate() === day && today.getMonth() === month;
+    });
+
+    // Contadores para o card configurável
+    const todayCount = todayBirthdayClients.length;
+    let range1Count = 0;
+    let range2Count = 0;
+
+    const range1Days = birthdayCardSettings.range1Days || 7;
+    const range2Days = birthdayCardSettings.range2Days || 30;
+
+    // Função auxiliar para calcular dias até o próximo aniversário
+    const getDaysToNextBirthday = (client) => {
+        if (!client.birthdate) return null;
+        let cleanDateStr = client.birthdate;
+        if (cleanDateStr.includes('T')) {
+            cleanDateStr = cleanDateStr.split('T')[0];
+        }
+        const parts = cleanDateStr.split('-');
+        if (parts.length !== 3) return null;
+        const month = parseInt(parts[1], 10) - 1;
+        const day = parseInt(parts[2], 10);
+
+        let nextBirthday = new Date(today.getFullYear(), month, day);
+        if (nextBirthday < today) {
+            nextBirthday = new Date(today.getFullYear() + 1, month, day);
+        }
+        const diffMs = nextBirthday - today;
+        return Math.floor(diffMs / (1000 * 60 * 60 * 24));
+    };
+
+    clients.forEach(client => {
+        const days = getDaysToNextBirthday(client);
+        if (days === null || days === 0) return; // 0 já está na contagem de HOJE
+
+        if (days > 0 && days <= range1Days) {
+            range1Count++;
+        }
+        if (days > 0 && days <= range2Days) {
+            range2Count++;
+        }
+    });
+
+    // Atualizar textos e visibilidade do card de aniversários
+    const todayEl = document.getElementById('birthday-count-today');
+    const range1El = document.getElementById('birthday-count-range1');
+    const range2El = document.getElementById('birthday-count-range2');
+    const range1Wrapper = document.getElementById('birthday-stat-range1');
+    const range2Wrapper = document.getElementById('birthday-stat-range2');
+    const range1Label = document.getElementById('birthday-label-range1');
+    const range2Label = document.getElementById('birthday-label-range2');
+
+    if (todayEl) {
+        todayEl.textContent = todayCount;
+    }
+
+    if (birthdayCardSettings.mode === 'today') {
+        if (range1Wrapper) range1Wrapper.style.display = 'none';
+        if (range2Wrapper) range2Wrapper.style.display = 'none';
+    } else if (birthdayCardSettings.mode === 'today_range1') {
+        if (range1Wrapper) range1Wrapper.style.display = 'block';
+        if (range2Wrapper) range2Wrapper.style.display = 'none';
+    } else {
+        if (range1Wrapper) range1Wrapper.style.display = 'block';
+        if (range2Wrapper) range2Wrapper.style.display = 'block';
+    }
+
+    if (range1El && range1Label) {
+        range1El.textContent = range1Count;
+        range1Label.textContent = `${range1Days} dias`;
+    }
+    if (range2El && range2Label) {
+        range2El.textContent = range2Count;
+        range2Label.textContent = `${range2Days} dias`;
+    }
+
+    // Atualizar lista de aniversariantes de hoje no dashboard
+    renderTodayBirthdaysDashboard(todayBirthdayClients);
+}
+
+// Renderizar lista de aniversariantes de hoje no dashboard (somente HOJE)
+function renderTodayBirthdaysDashboard(todayClients) {
+    const container = document.getElementById('today-birthdays-dashboard');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    // Título da seção
+    const title = document.createElement('h3');
+    title.textContent = 'Aniversariantes de Hoje';
+    container.appendChild(title);
+
+    if (!todayClients || todayClients.length === 0) {
+        container.innerHTML += `
+            <div class="empty-state">
+                <h3>Nenhum aniversariante hoje</h3>
+                <p>Quando houver aniversariantes, eles aparecerão aqui.</p>
+            </div>
+        `;
+        return;
+    }
+
+    const list = document.createElement('div');
+    list.className = 'clients-list';
+
+    todayClients.forEach(client => {
+        const card = document.createElement('div');
+        // Reutiliza o estilo de card piscando da tela de felicitações
+        card.className = 'client-card birthday-today';
+        // Ao clicar no card, abrir fluxo de envio de felicitações
+        card.onclick = () => {
+            // Se a licença estiver expirada, apenas redirecionar para tela de licença (sem mostrar alerta)
+            if (isLicenseExpired()) {
+                showSection('license');
+                return;
+            }
+            selectedClientId = client.id;
+            const nameElement = document.getElementById('selected-client-name');
+            if (nameElement) {
+                nameElement.textContent = client.name || 'Cliente';
+            }
+            const modal = document.getElementById('send-method-modal');
+            if (modal) {
+                modal.style.display = 'block';
+            }
+        };
+
+        const photoHtml = client.photo && client.photo.trim() !== ''
+            ? `<img src="${client.photo}" alt="${client.name}" class="client-photo">`
+            : `<div class="client-photo-placeholder">${client.name ? client.name.charAt(0).toUpperCase() : '?'}</div>`;
+
+        card.innerHTML = `
+            <div class="client-card-header">
+                ${photoHtml}
+                <div class="client-info">
+                    <h3>
+                        ${client.name || 'Cliente'}
+                        ${wasGreetingSent(client) ? '<span class="greeting-sent-badge">Mensagem enviada</span>' : ''}
+                    </h3>
+                    <p><strong>Data de Nascimento:</strong> ${client.birthdate ? formatDate(client.birthdate) : 'Não informada'}</p>
+                </div>
+            </div>
+        `;
+
+        list.appendChild(card);
+    });
+
+    container.appendChild(list);
 }
 
 // Verificar aniversários e enviar mensagens automaticamente
@@ -1948,13 +2452,13 @@ function handleClientPhotoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const photoData = event.target.result;
-        document.getElementById('client-photo-preview').src = photoData;
+    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para foto de cliente
+    openCropModal(file, 'client-photo', 1, (croppedImageData) => {
+        document.getElementById('client-photo-preview').src = croppedImageData;
         document.getElementById('client-photo-preview').style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+        // Armazenar temporariamente para usar no submit
+        window._pendingClientPhoto = croppedImageData;
+    });
 }
 
 // Upload de foto ao editar cliente
@@ -1962,13 +2466,13 @@ function handleEditClientPhotoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const photoData = event.target.result;
-        document.getElementById('edit-client-photo-preview').src = photoData;
+    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para foto de cliente
+    openCropModal(file, 'client-photo', 1, (croppedImageData) => {
+        document.getElementById('edit-client-photo-preview').src = croppedImageData;
         document.getElementById('edit-client-photo-preview').style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+        // Armazenar temporariamente para usar no submit
+        window._pendingEditClientPhoto = croppedImageData;
+    });
 }
 
 
@@ -1982,6 +2486,7 @@ function downloadBackup() {
         licenseActivations,
         used3DayKey,
         usedAnnualKeys,
+        userThemeSettings, // Incluir configurações de tema
         backupDate: new Date().toISOString()
     };
     
@@ -2020,6 +2525,7 @@ function restoreBackup() {
                 if (backupData.licenseActivations) licenseActivations = backupData.licenseActivations;
                 if (backupData.used3DayKey !== undefined) used3DayKey = backupData.used3DayKey;
                 if (backupData.usedAnnualKeys) usedAnnualKeys = backupData.usedAnnualKeys;
+                if (backupData.userThemeSettings) userThemeSettings = backupData.userThemeSettings; // Restaurar configurações de tema
                 
                 localStorage.setItem('clients', JSON.stringify(clients));
                 localStorage.setItem('companyData', JSON.stringify(companyData));
@@ -2028,6 +2534,7 @@ function restoreBackup() {
                 localStorage.setItem('licenseActivations', JSON.stringify(licenseActivations));
                 localStorage.setItem('used3DayKey', JSON.stringify(used3DayKey));
                 localStorage.setItem('usedAnnualKeys', JSON.stringify(usedAnnualKeys));
+                localStorage.setItem('userThemeSettings', JSON.stringify(userThemeSettings)); // Salvar configurações de tema
                 
                 loadAllClients();
                 loadClients();
@@ -2035,6 +2542,12 @@ function restoreBackup() {
                 updateCompanyHeader();
                 updateStats();
                 updateLicenseStatus();
+                
+                // Recarregar tema após restaurar backup
+                if (currentUser && currentUser.username) {
+                    loadUserTheme();
+                    setupThemeColorPicker();
+                }
                 
                 addSystemLog('restore', 'Dados restaurados a partir de backup', currentUser ? currentUser.username : 'Sistema');
                 alert('Backup restaurado com sucesso!');
@@ -2609,18 +3122,13 @@ function handleUserPhotoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    if (!file.type.startsWith('image/')) {
-        alert('Por favor, selecione um arquivo de imagem.');
-        return;
-    }
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const imageData = event.target.result;
-        document.getElementById('user-photo-preview').src = imageData;
+    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para foto de usuário
+    openCropModal(file, 'user-photo', 1, (croppedImageData) => {
+        document.getElementById('user-photo-preview').src = croppedImageData;
         document.getElementById('user-photo-preview').style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+        // Armazenar temporariamente para usar no submit
+        window._pendingUserPhoto = croppedImageData;
+    });
 }
 
 // Manipular upload de foto do usuário (edição)
@@ -2628,18 +3136,13 @@ function handleEditUserPhotoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    if (!file.type.startsWith('image/')) {
-        alert('Por favor, selecione um arquivo de imagem.');
-        return;
-    }
-    
-    const reader = new FileReader();
-    reader.onload = (event) => {
-        const imageData = event.target.result;
-        document.getElementById('edit-user-photo-preview').src = imageData;
+    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para foto de usuário
+    openCropModal(file, 'user-photo', 1, (croppedImageData) => {
+        document.getElementById('edit-user-photo-preview').src = croppedImageData;
         document.getElementById('edit-user-photo-preview').style.display = 'block';
-    };
-    reader.readAsDataURL(file);
+        // Armazenar temporariamente para usar no submit
+        window._pendingEditUserPhoto = croppedImageData;
+    });
 }
 
 // Manipular submit do formulário de usuário
@@ -2668,19 +3171,18 @@ function handleUserSubmit(e) {
         return;
     }
     
-    // Processar foto
+    // Usar foto recortada se disponível, senão usar foto do preview
     let photo = '';
-    if (photoInput.files.length > 0) {
-        const file = photoInput.files[0];
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            photo = event.target.result;
-            saveUserWithPhoto(name, username, password, birthdate, phone, email, accessLevel, photo);
-        };
-        reader.readAsDataURL(file);
+    if (window._pendingUserPhoto) {
+        photo = window._pendingUserPhoto;
+        window._pendingUserPhoto = null;
     } else {
-        saveUserWithPhoto(name, username, password, birthdate, phone, email, accessLevel, photo);
+        const preview = document.getElementById('user-photo-preview');
+        if (preview && preview.src && preview.style.display !== 'none') {
+            photo = preview.src;
+        }
     }
+    saveUserWithPhoto(name, username, password, birthdate, phone, email, accessLevel, photo);
 }
 
 // Salvar usuário com foto
@@ -2841,8 +3343,6 @@ function handleEditUserSubmit(e) {
     const phone = document.getElementById('edit-user-phone').value.trim();
     const email = document.getElementById('edit-user-email').value.trim();
     const accessLevel = document.getElementById('edit-user-access-level').value;
-    const photoInput = document.getElementById('edit-user-photo-input');
-    
     // Validações
     if (!name || !username || !birthdate || !phone || !email || !accessLevel) {
         alert('Por favor, preencha todos os campos obrigatórios.');
@@ -2863,19 +3363,19 @@ function handleEditUserSubmit(e) {
         return;
     }
     
-    // Processar foto
-    let photo = user.photo; // Manter foto atual se não houver nova
-    if (photoInput.files.length > 0) {
-        const file = photoInput.files[0];
-        const reader = new FileReader();
-        reader.onload = (event) => {
-            photo = event.target.result;
-            updateUserWithPhoto(userId, name, username, password, birthdate, phone, email, accessLevel, photo, isCoutinhoProtected);
-        };
-        reader.readAsDataURL(file);
+    // Usar foto recortada se disponível, senão manter foto atual ou usar preview
+    let photo = user.photo || '';
+    if (window._pendingEditUserPhoto) {
+        photo = window._pendingEditUserPhoto;
+        window._pendingEditUserPhoto = null;
     } else {
-        updateUserWithPhoto(userId, name, username, password, birthdate, phone, email, accessLevel, photo, isCoutinhoProtected);
+        const preview = document.getElementById('edit-user-photo-preview');
+        if (preview && preview.src && preview.style.display !== 'none' && preview.src !== photo) {
+            photo = preview.src;
+        }
     }
+    
+    updateUserWithPhoto(userId, name, username, password, birthdate, phone, email, accessLevel, photo, isCoutinhoProtected);
 }
 
 // Atualizar usuário com foto
@@ -2956,6 +3456,18 @@ function checkLoginStatus() {
         currentUser = null;
     }
     
+    // Recarregar configurações de tema do localStorage
+    const savedThemeSettings = localStorage.getItem('userThemeSettings');
+    if (savedThemeSettings) {
+        try {
+            userThemeSettings = JSON.parse(savedThemeSettings);
+        } catch (e) {
+            userThemeSettings = {};
+        }
+    } else {
+        userThemeSettings = {};
+    }
+    
     const loggedIn = currentUser !== null;
     const loginScreen = document.getElementById('login-screen');
     const homeContent = document.getElementById('home-content');
@@ -2964,7 +3476,24 @@ function checkLoginStatus() {
     const loggedUserPhoto = document.getElementById('logged-user-photo');
     
     if (loginScreen && homeContent) {
-        if (loggedIn) {
+        // Se estiver em modo de troca (usuário selecionado), mostrar tela de login mesmo com usuário logado
+        if (selectedUserForSwitch) {
+            loginScreen.style.display = 'flex';
+            homeContent.style.display = 'none';
+            // Manter informações do usuário no header (usuário atual ainda está logado)
+            if (userInfoHeader && loggedUserName && currentUser) {
+                userInfoHeader.style.display = 'flex';
+                loggedUserName.textContent = currentUser.name;
+                if (loggedUserPhoto) {
+                    if (currentUser.photo) {
+                        loggedUserPhoto.src = currentUser.photo;
+                        loggedUserPhoto.style.display = 'block';
+                    } else {
+                        loggedUserPhoto.style.display = 'none';
+                    }
+                }
+            }
+        } else if (loggedIn) {
             loginScreen.style.display = 'none';
             homeContent.style.display = 'block';
             updateStats();
@@ -2981,6 +3510,10 @@ function checkLoginStatus() {
                     }
                 }
             }
+            // Carregar tema personalizado do usuário logado
+            loadUserTheme();
+            // Configurar o seletor de cor com o tema do usuário
+            setupThemeColorPicker();
             // Iniciar timeout de sessão se ainda não estiver ativo
             if (!sessionTimeoutId) {
                 startSessionTimeout();
@@ -3003,6 +3536,9 @@ function checkLoginStatus() {
     // Atualizar visibilidade dos menus de "Mais Opções" e botões
     updateMoreOptionsVisibility();
     updateClientButtonsVisibility();
+    
+    // Atualizar visibilidade dos menus de navegação
+    updateMenuVisibility();
 }
 
 // Atualizar visibilidade dos botões de clientes baseado no nível de acesso
@@ -3021,12 +3557,26 @@ function updateClientButtonsVisibility() {
 function handleLogin(e) {
     e.preventDefault();
     
-    const username = document.getElementById('login-username').value.trim();
-    const password = document.getElementById('login-password').value;
+    let username, password;
     
-    if (!username || !password) {
-        alert('Por favor, preencha todos os campos.');
-        return;
+    // Se houver usuário selecionado para troca, usar apenas senha
+    if (selectedUserForSwitch) {
+        username = selectedUserForSwitch.username;
+        password = document.getElementById('login-password').value;
+        
+        if (!password) {
+            alert('Por favor, informe a senha.');
+            return;
+        }
+    } else {
+        // Login normal: usuário e senha
+        username = document.getElementById('login-username').value.trim();
+        password = document.getElementById('login-password').value;
+        
+        if (!username || !password) {
+            alert('Por favor, preencha todos os campos.');
+            return;
+        }
     }
     
     // Recarregar usuários do localStorage para garantir que temos os dados mais recentes
@@ -3038,14 +3588,15 @@ function handleLogin(e) {
         users = JSON.parse(localStorage.getItem('users')) || [];
     }
     
-    // Debug: verificar usuários disponíveis
-    console.log('Usuários disponíveis:', users.map(u => ({ username: u.username, password: u.password })));
-    console.log('Tentando login com:', { username, password });
-    
     // Verificar credenciais
     const user = users.find(u => u.username.toLowerCase() === username.toLowerCase() && u.password === password);
     
     if (user) {
+        // Se estava trocando de usuário, registrar no log
+        if (selectedUserForSwitch && currentUser) {
+            addSystemLog('logout', `Usuário ${currentUser.name} (${currentUser.username}) trocou de usuário`, currentUser.username);
+        }
+        
         currentUser = {
             id: user.id,
             name: user.name,
@@ -3061,6 +3612,18 @@ function handleLogin(e) {
         
         // Registrar login no log
         addSystemLog('login', `Usuário ${user.name} (${user.username}) realizou login`, user.username);
+        
+        // Limpar usuário selecionado para troca
+        selectedUserForSwitch = null;
+        
+        // Restaurar formulário de login para modo normal
+        const loginTitle = document.getElementById('login-title');
+        const usernameGroup = document.getElementById('username-group');
+        const selectedUserInfo = document.getElementById('selected-user-info');
+        
+        if (loginTitle) loginTitle.textContent = 'Login';
+        if (usernameGroup) usernameGroup.style.display = 'block';
+        if (selectedUserInfo) selectedUserInfo.style.display = 'none';
         
         // Mostrar mensagem de boas-vindas
         alert(`Bem-vindo, ${user.name}!`);
@@ -3078,47 +3641,289 @@ function handleLogin(e) {
         updateMoreOptionsVisibility();
         updateClientButtonsVisibility();
         
+        // Atualizar visibilidade dos menus de navegação (mostrar após login bem-sucedido)
+        updateMenuVisibility();
+        
         // Aguardar um pouco e então mostrar a tela de início para garantir que a UI seja atualizada
         setTimeout(() => {
             showSection('home');
             updateStats();
-            // Carregar tema personalizado do usuário
+            // Carregar tema personalizado do usuário APENAS após login bem-sucedido
             loadUserTheme();
+            setupThemeColorPicker();
         }, 100);
     } else {
-        alert('Usuário ou senha incorretos. Por favor, verifique os dados e tente novamente.\n\nUsuário padrão: admin\nSenha padrão: admin');
+        if (selectedUserForSwitch) {
+            alert('Senha incorreta. Por favor, verifique e tente novamente.');
+        } else {
+            alert('Usuário ou senha incorretos. Por favor, verifique os dados e tente novamente.\n\nUsuário padrão: admin\nSenha padrão: admin');
+        }
     }
 }
 
-// Logout
-function handleLogout() {
+// Lógica central de logout (sem confirmação)
+function performLogout() {
+    // Aplicar tema padrão IMEDIATAMENTE ao fazer logout
+    applyDefaultTheme();
+    
     if (currentUser) {
         addSystemLog('logout', `Usuário ${currentUser.name} (${currentUser.username}) realizou logout`, currentUser.username);
     }
     currentUser = null;
+    selectedUserForSwitch = null; // Limpar também usuário selecionado para troca
     localStorage.removeItem('currentUser');
     localStorage.removeItem('lastActivity');
     clearSessionTimeout();
+    
+    // Restaurar formulário de login para modo normal
+    const loginTitle = document.getElementById('login-title');
+    const usernameGroup = document.getElementById('username-group');
+    const selectedUserInfo = document.getElementById('selected-user-info');
+    const loginUsername = document.getElementById('login-username');
+    const loginPassword = document.getElementById('login-password');
+    
+    if (loginTitle) loginTitle.textContent = 'Login';
+    if (usernameGroup) usernameGroup.style.display = 'block';
+    if (selectedUserInfo) selectedUserInfo.style.display = 'none';
+    if (loginUsername) loginUsername.value = '';
+    if (loginPassword) loginPassword.value = '';
+    
+    // Atualizar visibilidade dos menus (esconder tudo no logout total)
+    updateMenuVisibility();
+    
     checkLoginStatus();
-    // Voltar ao tema padrão após logout
-    applyDefaultTheme();
     // Voltar para a tela de início (que mostrará o login)
     showSection('home');
 }
 
-// Trocar de usuário
-function switchUser() {
-    if (currentUser) {
-        addSystemLog('logout', `Usuário ${currentUser.name} (${currentUser.username}) trocou de usuário`, currentUser.username);
+// Logout acionado pelo botão "Sair" (com confirmação)
+function handleLogout() {
+    const confirmMessage = 'Você tem certeza que deseja desconectar do usuário atual?';
+    
+    if (!confirm(confirmMessage)) {
+        return;
     }
-    currentUser = null;
-    localStorage.removeItem('currentUser');
-    localStorage.removeItem('lastActivity');
-    clearSessionTimeout();
-    checkLoginStatus();
-    // Voltar para a tela de início (que mostrará o login)
+    
+    // Se confirmar, prosseguir com logout
+    performLogout();
+}
+
+// Trocar de usuário - Abre modal de seleção
+function switchUser() {
+    // Primeiro, pedir confirmação
+    const confirmMessage = 'Você tem certeza que deseja alterar o usuário conectado?';
+    
+    if (!confirm(confirmMessage)) {
+        // Se o usuário cancelar, manter logado e não fazer nada
+        return;
+    }
+    
+    // Se confirmar, esconder menus IMEDIATAMENTE antes de abrir o modal
+    // Criar um estado temporário para indicar que está em processo de troca
+    // Isso fará com que os menus fiquem escondidos mesmo antes de selecionar o usuário
+    const navMenu = document.querySelector('.nav-menu');
+    const userInfoHeader = document.getElementById('user-info-header');
+    
+    if (navMenu) navMenu.style.display = 'none';
+    if (userInfoHeader) userInfoHeader.style.display = 'none';
+    
+    // Abrir modal de seleção de usuários
+    openSelectUserModal();
+}
+
+// Abrir modal de seleção de usuários
+function openSelectUserModal() {
+    const modal = document.getElementById('select-user-modal');
+    const usersList = document.getElementById('users-select-list');
+    
+    if (!modal || !usersList) return;
+    
+    // Recarregar usuários do localStorage
+    users = JSON.parse(localStorage.getItem('users')) || [];
+    
+    // Se não houver usuários, inicializar os padrão
+    if (users.length === 0) {
+        initializeDefaultUsers();
+        users = JSON.parse(localStorage.getItem('users')) || [];
+    }
+    
+    // Limpar lista anterior
+    usersList.innerHTML = '';
+    
+    // Filtrar usuário atual (não mostrar na lista)
+    const availableUsers = users.filter(u => !currentUser || u.username !== currentUser.username);
+    
+    if (availableUsers.length === 0) {
+        usersList.innerHTML = '<p style="text-align: center; color: #666; padding: 20px;">Nenhum outro usuário disponível.</p>';
+    } else {
+        // Criar cards para cada usuário
+        availableUsers.forEach(user => {
+            const userCard = document.createElement('div');
+            userCard.className = 'select-client-item';
+            userCard.style.cursor = 'pointer';
+            userCard.onclick = () => selectUserForSwitch(user);
+            
+            const userInfo = document.createElement('div');
+            userInfo.style.display = 'flex';
+            userInfo.style.alignItems = 'center';
+            userInfo.style.gap = '15px';
+            
+            // Foto do usuário ou placeholder
+            if (user.photo) {
+                const photo = document.createElement('img');
+                photo.src = user.photo;
+                photo.style.width = '50px';
+                photo.style.height = '50px';
+                photo.style.borderRadius = '50%';
+                photo.style.objectFit = 'cover';
+                userInfo.appendChild(photo);
+            } else {
+                const placeholder = document.createElement('div');
+                placeholder.className = 'client-photo-placeholder';
+                placeholder.style.width = '50px';
+                placeholder.style.height = '50px';
+                placeholder.textContent = user.name.charAt(0).toUpperCase();
+                userInfo.appendChild(placeholder);
+            }
+            
+            const nameDiv = document.createElement('div');
+            const name = document.createElement('h4');
+            name.textContent = user.name;
+            name.style.margin = '0';
+            name.style.color = 'var(--primary-color)';
+            
+            const username = document.createElement('p');
+            username.textContent = `@${user.username}`;
+            username.style.margin = '5px 0 0 0';
+            username.style.color = '#666';
+            username.style.fontSize = '14px';
+            
+            nameDiv.appendChild(name);
+            nameDiv.appendChild(username);
+            userInfo.appendChild(nameDiv);
+            
+            userCard.appendChild(userInfo);
+            usersList.appendChild(userCard);
+        });
+    }
+    
+    modal.style.display = 'block';
+}
+
+// Fechar modal de seleção de usuários
+function closeSelectUserModal() {
+    const modal = document.getElementById('select-user-modal');
+    if (modal) {
+        modal.style.display = 'none';
+        selectedUserForSwitch = null;
+        
+        // Se houver usuário logado, manter logado e carregar tema do usuário atual
+        if (currentUser) {
+            // Mostrar menus novamente ao cancelar (fechar modal sem selecionar)
+            updateMenuVisibility();
+            loadUserTheme();
+        } else {
+            // Se não houver usuário logado, garantir que tema padrão esteja aplicado
+            applyDefaultTheme();
+            updateMenuVisibility();
+        }
+    }
+}
+
+// Selecionar usuário para troca
+function selectUserForSwitch(user) {
+    selectedUserForSwitch = user;
+    
+    // Fechar modal sem atualizar visibilidade (manter menus escondidos)
+    const modal = document.getElementById('select-user-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    
+    // IMPORTANTE: NÃO fazer logout do usuário atual ainda
+    // Apenas mostrar tela de senha com tema padrão
+    
+    // Aplicar tema padrão na tela de senha (antes da troca)
+    applyDefaultTheme();
+    
+    // Garantir que menus estejam escondidos (não chamar updateMenuVisibility que pode mostrar)
+    const navMenu = document.querySelector('.nav-menu');
+    const userInfoHeader = document.getElementById('user-info-header');
+    if (navMenu) navMenu.style.display = 'none';
+    if (userInfoHeader) userInfoHeader.style.display = 'none';
+    
+    // Mostrar tela de login com usuário pré-selecionado
+    // Mas manter o usuário atual logado até a senha ser confirmada
     showSection('home');
-    alert('Por favor, faça login com outro usuário.');
+    
+    // Atualizar formulário de login para modo de troca
+    const loginTitle = document.getElementById('login-title');
+    const usernameGroup = document.getElementById('username-group');
+    const selectedUserInfo = document.getElementById('selected-user-info');
+    const selectedUserName = document.getElementById('selected-user-name');
+    const loginUsername = document.getElementById('login-username');
+    const loginPassword = document.getElementById('login-password');
+    
+    if (loginTitle) loginTitle.textContent = 'Trocar de Usuário';
+    if (usernameGroup) usernameGroup.style.display = 'none';
+    if (selectedUserInfo) selectedUserInfo.style.display = 'block';
+    if (selectedUserName) selectedUserName.textContent = user.name + ' (@' + user.username + ')';
+    if (loginUsername) loginUsername.value = user.username;
+    if (loginPassword) {
+        loginPassword.value = '';
+        loginPassword.focus();
+    }
+    
+    // Forçar exibição da tela de login (mas manter usuário atual logado)
+    // Isso mostra a tela de senha, mas o usuário atual ainda está ativo
+    const loginScreen = document.getElementById('login-screen');
+    const homeContent = document.getElementById('home-content');
+    
+    if (loginScreen && homeContent) {
+        loginScreen.style.display = 'flex';
+        homeContent.style.display = 'none';
+    }
+}
+
+// Cancelar troca de usuário
+function cancelUserSwitch() {
+    selectedUserForSwitch = null;
+    
+    // Restaurar formulário de login normal
+    const loginTitle = document.getElementById('login-title');
+    const usernameGroup = document.getElementById('username-group');
+    const selectedUserInfo = document.getElementById('selected-user-info');
+    const loginUsername = document.getElementById('login-username');
+    const loginPassword = document.getElementById('login-password');
+    
+    if (loginTitle) loginTitle.textContent = 'Login';
+    if (usernameGroup) usernameGroup.style.display = 'block';
+    if (selectedUserInfo) selectedUserInfo.style.display = 'none';
+    if (loginUsername) loginUsername.value = '';
+    if (loginPassword) loginPassword.value = '';
+    
+    // Atualizar visibilidade dos menus (mostrar novamente após cancelar)
+    updateMenuVisibility();
+    
+    // Se houver usuário logado, manter logado e carregar tema do usuário atual
+    if (currentUser) {
+        // Voltar para a tela principal (não mostrar login)
+        const loginScreen = document.getElementById('login-screen');
+        const homeContent = document.getElementById('home-content');
+        
+        if (loginScreen && homeContent) {
+            loginScreen.style.display = 'none';
+            homeContent.style.display = 'block';
+        }
+        
+        // Carregar tema do usuário atual (não padrão)
+        loadUserTheme();
+        showSection('home');
+    } else {
+        // Se não houver usuário logado, mostrar tela de login normal com tema padrão
+        applyDefaultTheme();
+        checkLoginStatus();
+    }
 }
 
 // Iniciar timeout de sessão
@@ -3132,8 +3937,8 @@ function startSessionTimeout() {
     // Configurar timeout para 5 minutos
     sessionTimeoutId = setTimeout(() => {
         if (currentUser) {
-            alert('Sua sessão expirou por inatividade. Por favor, faça login novamente.');
-            handleLogout();
+            alert('Você ficou mais de 5 minutos inativo. Por segurança, é necessário fazer login novamente.');
+            performLogout();
         }
     }, SESSION_TIMEOUT);
 }
@@ -3160,16 +3965,16 @@ function checkSessionTimeout() {
     // Se passou mais de 5 minutos, fazer logout
     if (timeDiff > SESSION_TIMEOUT) {
         if (currentUser) {
-            alert('Sua sessão expirou. Por favor, faça login novamente.');
-            handleLogout();
+            alert('Você ficou mais de 5 minutos inativo. Por segurança, é necessário fazer login novamente.');
+            performLogout();
         }
     } else {
         // Reiniciar timeout com o tempo restante
         const remainingTime = SESSION_TIMEOUT - timeDiff;
         sessionTimeoutId = setTimeout(() => {
             if (currentUser) {
-                alert('Sua sessão expirou por inatividade. Por favor, faça login novamente.');
-                handleLogout();
+                alert('Você ficou mais de 5 minutos inativo. Por segurança, é necessário fazer login novamente.');
+                performLogout();
             }
         }, remainingTime);
     }
@@ -3182,6 +3987,155 @@ function updateLastActivity() {
         // Reiniciar timeout
         startSessionTimeout();
     }
+}
+
+// ================================
+// Configuração do card de aniversários
+// ================================
+
+function loadBirthdayCardSettingsIntoForm() {
+    const modeSelect = document.getElementById('birthday-card-mode');
+    const range1Input = document.getElementById('birthday-range1-days');
+    const range2Input = document.getElementById('birthday-range2-days');
+
+    if (!modeSelect || !range1Input || !range2Input) return;
+
+    modeSelect.value = birthdayCardSettings.mode || 'today_range1_range2';
+    range1Input.value = birthdayCardSettings.range1Days || 7;
+    range2Input.value = birthdayCardSettings.range2Days || 30;
+
+    // Atualizar pré-visualização da imagem de fundo, se existir
+    const preview = document.getElementById('theme-bg-preview');
+    if (preview) {
+        const userTheme = currentUser ? userThemeSettings[currentUser.username] : null;
+        if (userTheme && userTheme.backgroundImage) {
+            preview.style.backgroundImage = `url('${userTheme.backgroundImage}')`;
+            preview.innerHTML = '';
+        } else {
+            preview.style.backgroundImage = 'none';
+            preview.textContent = 'Pré-visualização do fundo (a imagem será ajustada automaticamente para preencher).';
+        }
+    }
+}
+
+function saveBirthdayCardSettings() {
+    const modeSelect = document.getElementById('birthday-card-mode');
+    const range1Input = document.getElementById('birthday-range1-days');
+    const range2Input = document.getElementById('birthday-range2-days');
+
+    if (!modeSelect || !range1Input || !range2Input) return;
+
+    const mode = modeSelect.value;
+    let range1Days = parseInt(range1Input.value, 10);
+    let range2Days = parseInt(range2Input.value, 10);
+
+    if (isNaN(range1Days) || range1Days < 1) range1Days = 7;
+    if (isNaN(range2Days) || range2Days < 1) range2Days = 30;
+
+    birthdayCardSettings = {
+        mode,
+        range1Days,
+        range2Days
+    };
+
+    localStorage.setItem('birthdayCardSettings', JSON.stringify(birthdayCardSettings));
+
+    // Atualizar imediatamente o card do dashboard
+    updateStats();
+
+    alert('Configurações do card de aniversários salvas com sucesso!');
+}
+
+// ================================
+// Upload de imagem de fundo do tema
+// ================================
+
+function handleThemeBackgroundUpload(e) {
+    const file = e.target.files[0];
+    if (!file) {
+        // Se remover a seleção, apenas limpar preview; remoção definitiva será feita ao salvar
+        const preview = document.getElementById('theme-bg-preview');
+        if (preview) {
+            preview.style.backgroundImage = 'none';
+            preview.textContent = 'Pré-visualização do fundo (a imagem será ajustada automaticamente para preencher).';
+        }
+        window._pendingThemeBackgroundImage = null;
+        return;
+    }
+
+    // Abrir modal de cropping com aspect ratio livre (NaN) para fundo do tema
+    // O fundo pode ter qualquer proporção, então não forçamos aspect ratio
+    openCropModal(file, 'theme-bg', NaN, (croppedImageData) => {
+        // Guardar em memória para aplicar somente ao salvar
+        window._pendingThemeBackgroundImage = croppedImageData;
+
+        // Atualizar pré-visualização
+        const preview = document.getElementById('theme-bg-preview');
+        if (preview) {
+            preview.style.backgroundImage = `url('${croppedImageData}')`;
+            preview.innerHTML = '';
+        }
+    });
+}
+
+// ================================
+// Definições dos botões de navegação
+// ================================
+
+function loadButtonSettingsForm() {
+    const textInput = document.getElementById('btn-text-color');
+    const bgInput = document.getElementById('btn-bg-color');
+    const bgTransparent = document.getElementById('btn-bg-transparent');
+    const borderColorInput = document.getElementById('btn-border-color');
+    const borderEnabled = document.getElementById('btn-border-enabled');
+
+    if (!textInput || !bgInput || !bgTransparent || !borderColorInput || !borderEnabled) return;
+
+    // Converter rgba para hex se necessário
+    function rgbaToHex(rgba) {
+        if (rgba.startsWith('#')) return rgba;
+        if (rgba.startsWith('rgba') || rgba.startsWith('rgb')) {
+            const match = rgba.match(/\d+/g);
+            if (match && match.length >= 3) {
+                const r = parseInt(match[0]).toString(16).padStart(2, '0');
+                const g = parseInt(match[1]).toString(16).padStart(2, '0');
+                const b = parseInt(match[2]).toString(16).padStart(2, '0');
+                return `#${r}${g}${b}`;
+            }
+        }
+        return '#ffffff';
+    }
+
+    textInput.value = rgbaToHex(buttonStyleSettings.textColor || '#ffffff');
+    bgInput.value = rgbaToHex(buttonStyleSettings.bgColor || 'rgba(255,255,255,0.2)');
+    bgTransparent.checked = !!buttonStyleSettings.transparentBg;
+    borderColorInput.value = rgbaToHex(buttonStyleSettings.borderColor || 'rgba(255,255,255,0.3)');
+    borderEnabled.checked = buttonStyleSettings.borderEnabled !== false;
+}
+
+function saveButtonSettings() {
+    const textInput = document.getElementById('btn-text-color');
+    const bgInput = document.getElementById('btn-bg-color');
+    const bgTransparent = document.getElementById('btn-bg-transparent');
+    const borderColorInput = document.getElementById('btn-border-color');
+    const borderEnabled = document.getElementById('btn-border-enabled');
+
+    if (!textInput || !bgInput || !bgTransparent || !borderColorInput || !borderEnabled) return;
+
+    buttonStyleSettings = {
+        textColor: textInput.value || '#ffffff',
+        bgColor: bgInput.value || '#ffffff',
+        transparentBg: bgTransparent.checked,
+        borderColor: borderColorInput.value || '#ffffff',
+        borderEnabled: borderEnabled.checked
+    };
+
+    localStorage.setItem('buttonStyleSettings', JSON.stringify(buttonStyleSettings));
+
+    // Aplicar imediatamente
+    applyButtonStyles();
+
+    alert('Definições dos botões salvas com sucesso!');
 }
 
 // ============================================
@@ -3414,11 +4368,21 @@ function applyThemeColor(primaryColor, secondaryColor = null) {
     console.log(`Tema aplicado: ${primaryColor} -> ${secondaryColor}`);
 }
 
+// Aplicar imagem de fundo (ou remover se não houver)
+function applyThemeBackgroundImage(backgroundImage) {
+    if (backgroundImage) {
+        document.documentElement.style.setProperty('--background-image', `url('${backgroundImage}')`);
+    } else {
+        document.documentElement.style.setProperty('--background-image', 'none');
+    }
+}
+
 // Função para aplicar tema padrão (antes do login)
 function applyDefaultTheme() {
     const defaultPrimary = '#667eea';
     const defaultSecondary = '#764ba2';
     applyThemeColor(defaultPrimary, defaultSecondary);
+    applyThemeBackgroundImage(null);
 }
 
 // Função para carregar tema do usuário logado
@@ -3431,6 +4395,7 @@ function loadUserTheme() {
     const userTheme = userThemeSettings[currentUser.username];
     if (userTheme && userTheme.primaryColor) {
         applyThemeColor(userTheme.primaryColor, userTheme.secondaryColor);
+        applyThemeBackgroundImage(userTheme.backgroundImage || null);
         console.log(`Tema do usuário ${currentUser.username} carregado: ${userTheme.primaryColor}`);
     } else {
         // Se usuário não tem tema personalizado, aplicar padrão
@@ -3445,10 +4410,11 @@ function saveUserTheme(primaryColor, secondaryColor) {
         return;
     }
     
-    // Salvar tema para o usuário atual
+    // Salvar tema para o usuário atual (mantendo imagem de fundo, se já existir)
     userThemeSettings[currentUser.username] = {
         primaryColor: primaryColor,
         secondaryColor: secondaryColor,
+        backgroundImage: userThemeSettings[currentUser.username]?.backgroundImage || null,
         lastUpdated: new Date().toISOString()
     };
     
@@ -3559,16 +4525,38 @@ function saveThemeColor() {
     const selectedColor = colorPicker.value;
     const secondaryColor = generateSecondaryColor(selectedColor);
     
-    // Aplicar tema
+    // Preparar objeto existente ou novo
+    if (!userThemeSettings[currentUser.username]) {
+        userThemeSettings[currentUser.username] = {
+            primaryColor: selectedColor,
+            secondaryColor: secondaryColor,
+            backgroundImage: null,
+            lastUpdated: new Date().toISOString()
+        };
+    }
+
+    // Aplicar mudanças de cor
+    userThemeSettings[currentUser.username].primaryColor = selectedColor;
+    userThemeSettings[currentUser.username].secondaryColor = secondaryColor;
+
+    // Se houver imagem pendente (inclusive null), aplicar também
+    if (window._pendingThemeBackgroundImage !== undefined) {
+        userThemeSettings[currentUser.username].backgroundImage = window._pendingThemeBackgroundImage;
+    }
+
+    userThemeSettings[currentUser.username].lastUpdated = new Date().toISOString();
+
+    // Salvar em localStorage
+    localStorage.setItem('userThemeSettings', JSON.stringify(userThemeSettings));
+
+    // Aplicar tema completo imediatamente
     applyThemeColor(selectedColor, secondaryColor);
-    
-    // Salvar tema para o usuário
-    saveUserTheme(selectedColor, secondaryColor);
-    
+    applyThemeBackgroundImage(userThemeSettings[currentUser.username].backgroundImage || null);
+
     // Log da alteração
     addSystemLog('theme_change', `Cor do tema alterada para ${selectedColor}`, currentUser.username);
-    
-    alert(`✅ Tema personalizado salvo! Cor: ${selectedColor}`);
+
+    alert(`✅ Tema personalizado salvo! Cor: ${selectedColor}\n\nO tema será mantido mesmo após fechar o navegador.`);
 }
 
 // Função para restaurar cor padrão
