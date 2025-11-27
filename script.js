@@ -703,6 +703,7 @@ function checkAndShowSplashScreen() {
             
             // Adicionar listener para erros de carregamento
             let errorCount = 0;
+            let triedWebM = false;
             const errorHandler = function(e) {
                 errorCount++;
                 console.error('Erro ao carregar vídeo (tentativa ' + errorCount + '):', e);
@@ -712,41 +713,54 @@ function checkAndShowSplashScreen() {
                     console.error('URL tentada:', splashVideo.src);
                 }
                 
-                // Se o erro for de decodificação (código 4), tentar WebM primeiro
-                if (splashVideo.error && splashVideo.error.code === 4) {
+                // Se o erro for de decodificação (código 4) e ainda não tentou WebM
+                if (splashVideo.error && splashVideo.error.code === 4 && !triedWebM) {
                     // Erro de decodificação - tentar WebM
                     const webmSource = splashVideo.querySelector('source[type="video/webm"]');
-                    if (webmSource && errorCount === 1) {
-                        console.log('Tentando formato WebM devido a erro de decodificação MP4');
+                    if (webmSource) {
+                        triedWebM = true;
+                        console.log('Erro de decodificação MP4 detectado. Tentando formato WebM...');
                         splashVideo.src = webmSource.src;
                         splashVideo.load();
                         return;
                     }
                 }
                 
-                // Tentar caminhos alternativos apenas se não for erro de decodificação
-                if (errorCount < 2) {
-                    const alternativePaths = [
-                        'videos/entrada-2-1.webm',
-                        'videos/entrada-2-1.mp4'
-                    ];
-                    
-                    let currentPathIndex = alternativePaths.indexOf(splashVideo.src);
-                    if (currentPathIndex === -1) currentPathIndex = 0;
-                    
-                    if (currentPathIndex < alternativePaths.length - 1) {
-                        splashVideo.src = alternativePaths[currentPathIndex + 1];
-                        console.log('Tentando caminho alternativo:', splashVideo.src);
+                // Se WebM também falhou ou não existe, continuar sem vídeo
+                if (errorCount >= 2 || (triedWebM && splashVideo.error && splashVideo.error.code === 4)) {
+                    console.warn('Não foi possível carregar o vídeo após ' + errorCount + ' tentativas (MP4 e WebM falharam), continuando sem ele');
+                    console.warn('Possíveis causas: arquivo corrompido, codec incompatível ou arquivo não enviado completamente ao GitHub');
+                    setTimeout(() => {
+                        hideSplashAndInitialize();
+                    }, 2000);
+                    return;
+                }
+                
+                // Se ainda não tentou WebM e não é erro de decodificação, tentar WebM
+                if (!triedWebM && errorCount === 1) {
+                    const webmSource = splashVideo.querySelector('source[type="video/webm"]');
+                    if (webmSource) {
+                        triedWebM = true;
+                        console.log('Tentando formato WebM como alternativa...');
+                        splashVideo.src = webmSource.src;
                         splashVideo.load();
                         return;
                     }
                 }
                 
-                // Se todos os caminhos falharam, continuar após 3 segundos
-                console.warn('Não foi possível carregar o vídeo após ' + errorCount + ' tentativas, continuando sem ele');
-                setTimeout(() => {
-                    hideSplashAndInitialize();
-                }, 3000);
+                // Última tentativa: aguardar mais um pouco
+                if (errorCount === 1) {
+                    setTimeout(() => {
+                        if (splashVideo.error) {
+                            errorHandler(e);
+                        }
+                    }, 2000);
+                } else {
+                    console.warn('Não foi possível carregar o vídeo, continuando sem ele');
+                    setTimeout(() => {
+                        hideSplashAndInitialize();
+                    }, 2000);
+                }
             };
             
             splashVideo.addEventListener('error', errorHandler);
