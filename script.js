@@ -696,8 +696,8 @@ function checkAndShowSplashScreen() {
                 splashVideo.src = source.src;
                 console.log('Fonte do vídeo definida do source:', splashVideo.src);
             } else if (!splashVideo.src) {
-                // Fallback: definir manualmente
-                splashVideo.src = 'videos/entrada 2-1.mp4';
+                // Fallback: definir manualmente (nome correto com hífen)
+                splashVideo.src = 'videos/entrada-2-1.mp4';
                 console.log('Fonte do vídeo definida manualmente:', splashVideo.src);
             }
             
@@ -709,11 +709,12 @@ function checkAndShowSplashScreen() {
                     console.error('Mensagem:', splashVideo.error.message);
                 }
                 
-                // Tentar caminhos alternativos
+                // Tentar caminhos alternativos (nomes corretos com hífen)
                 const alternativePaths = [
+                    'videos/entrada-2-1.mp4',
                     'videos/entrada%202-1.mp4',
                     'videos/entrada 2-1.mp4',
-                    './videos/entrada 2-1.mp4'
+                    './videos/entrada-2-1.mp4'
                 ];
                 
                 let currentPathIndex = alternativePaths.indexOf(splashVideo.src);
