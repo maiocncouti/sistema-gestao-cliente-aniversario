@@ -50,6 +50,9 @@ let buttonStyleSettings = JSON.parse(localStorage.getItem('buttonStyleSettings')
     borderEnabled: true
 };
 
+// Controle de Salvamento Automático
+let autoSaveEnabled = JSON.parse(localStorage.getItem('autoSaveEnabled')) || false;
+
 // Timeout de sessão (5 minutos em milissegundos)
 const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutos
 
@@ -1024,6 +1027,26 @@ function setupEventListeners() {
     if (loginForm) {
         loginForm.addEventListener('submit', handleLogin);
     }
+    
+    // Toggle de salvamento automático
+    const autoSaveToggle = document.getElementById('auto-save-toggle');
+    if (autoSaveToggle) {
+        autoSaveToggle.addEventListener('change', toggleAutoSave);
+    }
+    
+    // Event listener para fechar navegador/aba
+    window.addEventListener('beforeunload', (e) => {
+        // Tentar fazer salvamento automático antes de fechar
+        // Nota: Alguns navegadores podem bloquear downloads durante beforeunload
+        try {
+            performAutoSave();
+        } catch (error) {
+            console.log('Erro ao realizar salvamento automático antes de fechar:', error);
+        }
+    });
+    
+    // Atualizar status visual do salvamento automático
+    updateAutoSaveStatus();
 }
 
 // Verificar se usuário é administrador
@@ -1088,6 +1111,10 @@ function showSection(sectionId) {
     }
     
     // Recarregar listas quando mudar de seção
+    if (sectionId === 'backup') {
+        updateAutoSaveStatus(); // Atualizar status visual do salvamento automático
+    }
+    
     if (sectionId === 'all-clients') {
         showClientsListView(); // Sempre mostrar lista ao entrar na seção
         loadAllClients();
@@ -1314,6 +1341,9 @@ function saveClientFinal(client) {
     loadAllClients();
     loadClients();
     updateStats();
+    
+    // Salvamento automático
+    performAutoSave();
     
     // Limpar formulário
     document.getElementById('client-form').reset();
@@ -1648,6 +1678,9 @@ function updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, ph
     updateStats();
     closeEditModal();
     
+    // Salvamento automático
+    performAutoSave();
+    
     alert('Cliente atualizado com sucesso!');
 }
 
@@ -1672,6 +1705,10 @@ function deleteClient(clientId) {
         loadClients(); // Recarregar lista de felicitações
         loadAllClients(); // Recarregar lista de todos os clientes
         updateStats();
+        
+        // Salvamento automático
+        performAutoSave();
+        
         alert('Cliente excluído com sucesso!');
     }
 }
@@ -2125,6 +2162,10 @@ function handleCompanySubmit(e) {
     
     saveCompanyData();
     updateCompanyHeader();
+    
+    // Salvamento automático
+    performAutoSave();
+    
     alert('Dados da empresa salvos com sucesso!');
 }
 
@@ -2789,6 +2830,59 @@ function downloadBackup() {
     URL.revokeObjectURL(url);
     addSystemLog('backup', 'Backup dos dados realizado', currentUser ? currentUser.username : 'Sistema');
     alert('Backup realizado com sucesso!');
+}
+
+// Salvamento Automático
+function performAutoSave() {
+    // Só executar se o salvamento automático estiver ativo
+    if (!autoSaveEnabled) {
+        return;
+    }
+    
+    const backupData = {
+        clients,
+        companyData,
+        sentGreetings,
+        licenseData,
+        licenseActivations,
+        used3DayKey,
+        usedAnnualKeys,
+        userThemeSettings,
+        backupDate: new Date().toISOString()
+    };
+    
+    const dataStr = JSON.stringify(backupData, null, 2);
+    const dataBlob = new Blob([dataStr], { type: 'application/json' });
+    const url = URL.createObjectURL(dataBlob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = 'salvamento automatico.json'; // Nome fixo
+    link.click();
+    URL.revokeObjectURL(url);
+    
+    // Log silencioso (sem alert)
+    addSystemLog('auto_save', 'Salvamento automático realizado', currentUser ? currentUser.username : 'Sistema');
+}
+
+// Atualizar status visual do salvamento automático
+function updateAutoSaveStatus() {
+    const statusElement = document.getElementById('auto-save-status');
+    const toggleElement = document.getElementById('auto-save-toggle');
+    
+    if (statusElement) {
+        statusElement.textContent = autoSaveEnabled ? 'Salvamento Automático: Ativo' : 'Salvamento Automático: Inativo';
+    }
+    
+    if (toggleElement) {
+        toggleElement.checked = autoSaveEnabled;
+    }
+}
+
+// Toggle do salvamento automático
+function toggleAutoSave() {
+    autoSaveEnabled = !autoSaveEnabled;
+    localStorage.setItem('autoSaveEnabled', JSON.stringify(autoSaveEnabled));
+    updateAutoSaveStatus();
 }
 
 // Restaurar backup
@@ -3535,6 +3629,10 @@ function saveUserWithPhoto(name, username, password, birthdate, phone, email, ac
         users.push(newUser);
         saveUsers();
         addSystemLog('create_user', `Usuário "${name}" foi criado`, currentUser ? currentUser.username : 'Sistema');
+        
+        // Salvamento automático
+        performAutoSave();
+        
         alert('Usuário cadastrado com sucesso!');
         showUsersListView();
     }
@@ -3686,6 +3784,10 @@ function updateUserWithPhoto(userId, name, username, password, birthdate, phone,
     
     saveUsers();
     addSystemLog('edit_user', `Usuário "${name}" foi editado`, currentUser ? currentUser.username : 'Sistema');
+    
+    // Salvamento automático
+    performAutoSave();
+    
     alert('Usuário atualizado com sucesso!');
     closeEditUserModal();
     loadUsers();
@@ -3722,6 +3824,10 @@ function deleteUser(userId) {
         users = users.filter(u => u.id !== userId);
         saveUsers();
         addSystemLog('delete_user', `Usuário "${user.name}" foi excluído`, currentUser ? currentUser.username : 'Sistema');
+        
+        // Salvamento automático
+        performAutoSave();
+        
         alert('Usuário excluído com sucesso!');
         loadUsers();
     }
@@ -3952,6 +4058,9 @@ function handleLogin(e) {
 
 // Lógica central de logout (sem confirmação)
 function performLogout() {
+    // Salvamento automático antes de sair
+    performAutoSave();
+    
     // Aplicar tema padrão IMEDIATAMENTE ao fazer logout
     applyDefaultTheme();
     
@@ -4006,6 +4115,9 @@ function switchUser() {
         // Se o usuário cancelar, manter logado e não fazer nada
         return;
     }
+    
+    // Salvamento automático antes de trocar de usuário
+    performAutoSave();
     
     // Se confirmar, esconder menus IMEDIATAMENTE antes de abrir o modal
     // Criar um estado temporário para indicar que está em processo de troca
