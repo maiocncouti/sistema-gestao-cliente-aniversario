@@ -9,6 +9,34 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.5.13/cropper.min.js"></script>
 </head>
 <body>
+    <!-- Script inline para esconder container imediatamente -->
+    <script>
+        (function() {
+            // Esconder container imediatamente para bloquear acesso
+            document.addEventListener('DOMContentLoaded', function() {
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.style.display = 'none';
+                }
+            });
+            // Se o DOM já está carregado, executar imediatamente
+            if (document.readyState !== 'loading') {
+                const container = document.querySelector('.container');
+                if (container) {
+                    container.style.display = 'none';
+                }
+            }
+        })();
+    </script>
+    
+    <!-- Splash Screen -->
+    <div id="splash-screen">
+        <video id="splash-video" autoplay muted playsinline preload="auto">
+            <source src="videos/entrada 2-1.mp4" type="video/mp4">
+            Seu navegador não suporta a tag de vídeo.
+        </video>
+    </div>
+
     <div class="container">
         <!-- Header com Logo -->
         <header class="header">

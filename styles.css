@@ -1618,3 +1618,40 @@ body {
     box-shadow: 0 5px 15px rgba(231, 76, 60, 0.4);
 }
 
+/* Splash Screen */
+#splash-screen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 99999; /* Z-index muito alto para garantir que fique acima de tudo */
+    background: #000;
+    display: flex; /* Mostrar por padrão, será controlado via JavaScript */
+    align-items: center;
+    justify-content: center;
+    opacity: 1;
+    transition: opacity 0.5s ease-out;
+}
+
+#splash-screen.hidden {
+    opacity: 0;
+    pointer-events: none;
+}
+
+#splash-screen[style*="display: none"] {
+    display: none !important;
+}
+
+#splash-video {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+/* Garantir que o container fique escondido quando a splash screen estiver visível */
+body:has(#splash-screen[style*="display: flex"]) .container,
+body:has(#splash-screen:not([style*="display: none"])) .container {
+    display: none !important;
+}
+

@@ -555,7 +555,11 @@ const annualLicenseKeys = {
 };
 
 // Inicialização
-document.addEventListener('DOMContentLoaded', () => {
+// ============================================
+// LÓGICA DA SPLASH SCREEN
+// ============================================
+// Função para inicializar a aplicação após a splash screen
+function initializeApplication() {
     initializeApp();
     setupEventListeners();
     initializeDefaultUsers();
@@ -582,21 +586,265 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Atualizar última atividade em eventos de interação
     document.addEventListener('click', updateLastActivity);
-      document.addEventListener('keypress', updateLastActivity);
-      document.addEventListener('mousemove', updateLastActivity);
-      
-      // Carregar tema padrão na inicialização (antes do login)
-      // O checkLoginStatus() irá carregar o tema do usuário se ele estiver logado
-      applyDefaultTheme();
-      
-      // Após verificar o login, carregar tema do usuário se estiver logado
-      setTimeout(() => {
-          if (currentUser && currentUser.username) {
-              loadUserTheme();
-              setupThemeColorPicker();
-          }
-      }, 100);
-  });
+    document.addEventListener('keypress', updateLastActivity);
+    document.addEventListener('mousemove', updateLastActivity);
+    
+    // Carregar tema padrão na inicialização (antes do login)
+    // O checkLoginStatus() irá carregar o tema do usuário se ele estiver logado
+    applyDefaultTheme();
+    
+    // Após verificar o login, carregar tema do usuário se estiver logado
+    setTimeout(() => {
+        if (currentUser && currentUser.username) {
+            loadUserTheme();
+            setupThemeColorPicker();
+        }
+    }, 100);
+}
+
+function checkAndShowSplashScreen() {
+    const FIVE_HOURS_MS = 18000000; // 5 horas em milissegundos
+    const splashScreen = document.getElementById('splash-screen');
+    const splashVideo = document.getElementById('splash-video');
+    
+    // Esconder o container principal IMEDIATAMENTE para bloquear acesso
+    const container = document.querySelector('.container');
+    if (container) {
+        container.style.display = 'none';
+    }
+    
+    if (!splashScreen || !splashVideo) {
+        console.error('Splash screen ou vídeo não encontrado!');
+        // Se a splash screen não existir, mostrar container e inicializar
+        if (container) {
+            container.style.display = '';
+        }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApplication);
+        } else {
+            initializeApplication();
+        }
+        return;
+    }
+    
+    // Garantir que a splash screen esteja visível inicialmente
+    splashScreen.style.display = 'flex';
+    splashScreen.classList.remove('hidden');
+    
+    // 1. Verificar e Gerenciar o Contador Diário
+    const today = new Date().toDateString();
+    let videoShowCount = parseInt(localStorage.getItem('videoShowCount')) || 0;
+    const videoLastDate = localStorage.getItem('videoLastDate');
+    
+    // Se a data mudou, resetar o contador
+    if (videoLastDate !== today) {
+        videoShowCount = 0;
+        localStorage.setItem('videoShowCount', '0');
+        localStorage.setItem('videoLastDate', today);
+    }
+    
+    // 2. Calcular Tempo e Contagem
+    const now = Date.now();
+    const videoLastShowTime = parseInt(localStorage.getItem('videoLastShowTime')) || 0;
+    const timeSinceLastShow = now - videoLastShowTime;
+    const hasPassedFiveHours = timeSinceLastShow >= FIVE_HOURS_MS;
+    
+    // 3. Decisão de Exibição
+    // Se nunca foi exibido (videoLastShowTime === 0), sempre mostrar
+    const shouldShow = videoLastShowTime === 0 || hasPassedFiveHours || videoShowCount < 3;
+    
+    // Função para esconder splash e inicializar aplicação
+    function hideSplashAndInitialize() {
+        splashScreen.classList.add('hidden');
+        setTimeout(() => {
+            splashScreen.style.display = 'none';
+            // Mostrar o container principal novamente
+            if (container) {
+                container.style.display = ''; // Restaurar display padrão
+            }
+            // Inicializar a aplicação após a splash screen desaparecer
+            initializeApplication();
+        }, 500); // Tempo do fade-out (0.5s)
+    }
+    
+    if (shouldShow) {
+        console.log('Mostrando splash screen - Condições atendidas');
+        
+        // Garantir que o container está escondido
+        if (container) {
+            container.style.display = 'none';
+        }
+        
+        // MOSTRAR a splash screen
+        splashScreen.style.display = 'flex';
+        splashScreen.classList.remove('hidden');
+        
+        // Atualizar contador e timestamp ANTES de mostrar
+        videoShowCount++;
+        localStorage.setItem('videoShowCount', videoShowCount.toString());
+        localStorage.setItem('videoLastShowTime', now.toString());
+        localStorage.setItem('videoLastDate', today);
+        
+        // Função para iniciar a reprodução do vídeo
+        function startVideoPlayback() {
+            console.log('Iniciando reprodução do vídeo');
+            
+            // Verificar e definir a fonte do vídeo
+            const source = splashVideo.querySelector('source');
+            if (source && source.src) {
+                // Usar a fonte do elemento source
+                splashVideo.src = source.src;
+                console.log('Fonte do vídeo definida do source:', splashVideo.src);
+            } else if (!splashVideo.src) {
+                // Fallback: definir manualmente
+                splashVideo.src = 'videos/entrada 2-1.mp4';
+                console.log('Fonte do vídeo definida manualmente:', splashVideo.src);
+            }
+            
+            // Adicionar listener para erros de carregamento
+            const errorHandler = function(e) {
+                console.error('Erro ao carregar vídeo:', e);
+                if (splashVideo.error) {
+                    console.error('Código de erro:', splashVideo.error.code);
+                    console.error('Mensagem:', splashVideo.error.message);
+                }
+                
+                // Tentar caminhos alternativos
+                const alternativePaths = [
+                    'videos/entrada%202-1.mp4',
+                    'videos/entrada 2-1.mp4',
+                    './videos/entrada 2-1.mp4'
+                ];
+                
+                let currentPathIndex = alternativePaths.indexOf(splashVideo.src);
+                if (currentPathIndex === -1) currentPathIndex = 0;
+                
+                if (currentPathIndex < alternativePaths.length - 1) {
+                    // Tentar próximo caminho
+                    splashVideo.src = alternativePaths[currentPathIndex + 1];
+                    console.log('Tentando caminho alternativo:', splashVideo.src);
+                    splashVideo.load();
+                } else {
+                    // Se todos os caminhos falharam, continuar após 3 segundos
+                    console.warn('Não foi possível carregar o vídeo, continuando sem ele');
+                    setTimeout(() => {
+                        hideSplashAndInitialize();
+                    }, 3000);
+                }
+            };
+            
+            splashVideo.addEventListener('error', errorHandler, { once: true });
+            
+            // Resetar o vídeo para o início
+            splashVideo.currentTime = 0;
+            
+            // Carregar o vídeo novamente para garantir que está pronto
+            splashVideo.load();
+            
+            // Aguardar o vídeo estar pronto para reproduzir
+            const onCanPlay = function() {
+                console.log('Vídeo pronto para reproduzir');
+                // Tentar reproduzir o vídeo
+                const playPromise = splashVideo.play();
+                
+                if (playPromise !== undefined) {
+                    playPromise.then(() => {
+                        // Vídeo começou a reproduzir com sucesso
+                        console.log('Vídeo iniciado com sucesso');
+                    }).catch(error => {
+                        console.error('Erro ao reproduzir vídeo:', error);
+                        // Se houver erro, continuar mesmo assim após um tempo
+                        setTimeout(() => {
+                            hideSplashAndInitialize();
+                        }, 3000);
+                    });
+                }
+            };
+            
+            // Verificar se o vídeo já está pronto
+            if (splashVideo.readyState >= 3) {
+                // Vídeo já tem dados suficientes
+                console.log('Vídeo já está pronto, reproduzindo imediatamente');
+                onCanPlay();
+            } else {
+                // Aguardar o vídeo estar pronto
+                splashVideo.addEventListener('canplaythrough', onCanPlay, { once: true });
+                splashVideo.addEventListener('loadeddata', function() {
+                    console.log('Dados do vídeo carregados');
+                    // Se canplaythrough não foi disparado, tentar reproduzir mesmo assim
+                    if (splashVideo.readyState >= 2) {
+                        setTimeout(onCanPlay, 100);
+                    }
+                }, { once: true });
+                
+                // Fallback: se o vídeo não carregar em 5 segundos, tentar reproduzir mesmo assim
+                setTimeout(() => {
+                    if (splashScreen.style.display !== 'none' && splashScreen.style.display === 'flex') {
+                        console.log('Timeout - tentando reproduzir vídeo mesmo assim');
+                        if (splashVideo.readyState >= 2) {
+                            onCanPlay();
+                        } else {
+                            // Se ainda não carregou, continuar sem vídeo
+                            console.warn('Vídeo não carregou a tempo, continuando sem ele');
+                            hideSplashAndInitialize();
+                        }
+                    }
+                }, 5000);
+            }
+            
+            // Aguardar o vídeo terminar completamente
+            splashVideo.addEventListener('ended', function() {
+                console.log('Vídeo terminou');
+                hideSplashAndInitialize();
+            }, { once: true });
+            
+            // Fallback: se o vídeo não terminar em 60 segundos, continuar mesmo assim
+            setTimeout(() => {
+                if (splashScreen.style.display !== 'none' && splashScreen.style.display === 'flex') {
+                    console.log('Timeout - vídeo não terminou, continuando mesmo assim');
+                    hideSplashAndInitialize();
+                }
+            }, 60000);
+        }
+        
+        // Aguardar um pequeno delay para garantir que o DOM está pronto
+        setTimeout(() => {
+            startVideoPlayback();
+        }, 300);
+        
+    } else {
+        console.log('Não mostrando splash screen - Condições não atendidas');
+        // ESCONDER a splash screen imediatamente
+        splashScreen.style.display = 'none';
+        // Mostrar o container
+        if (container) {
+            container.style.display = '';
+        }
+        // Inicializar a aplicação imediatamente
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initializeApplication);
+        } else {
+            initializeApplication();
+        }
+    }
+}
+
+// Executar a verificação da splash screen IMEDIATAMENTE
+// Esta função deve ser a primeira coisa a executar para bloquear o acesso
+(function() {
+    // Se o DOM ainda não está pronto, aguardar
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function() {
+            setTimeout(checkAndShowSplashScreen, 100);
+        });
+    } else {
+        // DOM já carregado, executar imediatamente
+        setTimeout(checkAndShowSplashScreen, 100);
+    }
+})();
+
+// A inicialização da aplicação agora é controlada pela função checkAndShowSplashScreen
+// que decide se mostra a splash screen ou inicializa diretamente através de initializeApplication()
 
 // Inicializar aplicação
 function initializeApp() {
