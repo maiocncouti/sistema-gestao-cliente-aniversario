@@ -1,0 +1,106 @@
+================================================================================
+RESUMO - SISTEMA DE CONTROLE DE ESTOQUE E PRODUTOS
+================================================================================
+
+1. MENU PRINCIPAL "CONTROLE DE ESTOQUE"
+   - Adicionar botão no menu principal entre "Clientes" e "⋯"
+   - Criar seção id="inventory"
+
+2. TELA "CONTROLE DE ESTOQUE" - MENU DE OPÇÕES
+   Exibir como menus/botões:
+   - 📦 Produtos (PRINCIPAL - desenvolver agora)
+   - 📥 Entradas/Recebimentos (futuro)
+   - 📤 Saídas/Vendas (futuro)
+   - 📊 Relatórios (futuro)
+   - ⚙️ Configurações (futuro)
+
+3. TELA DE PRODUTOS - CABEÇALHO (acima dos cards)
+   - Botão "Cadastrar Novo Produto"
+   - Barra de pesquisa (por nome - tempo real)
+   - Filtro dropdown (por categoria)
+
+4. CARDS DE PRODUTOS
+   Exibir: foto miniatura, nome, custo, venda, estoque, categoria
+   Ao clicar no card: modal com:
+     * Nome e foto em destaque
+     * Opções: Editar, Alterar Qtde Estoque, Excluir
+     * Opções imagem: Alterar Imagem, Excluir Imagem
+
+5. FORMULÁRIO DE PRODUTO
+
+   OBRIGATÓRIOS:
+   - Nome do Produto *
+   - Preço de Venda *
+
+   OPCIONAIS:
+   🌟 Identificação:
+   - SKU
+   - Código de Barras (EAN/UPC)
+
+   💰 Preço & Finanças:
+   - Custo (opcional, mas crucial)
+   - NCM
+
+   📦 Estoque & Logística:
+   - Quantidade em Estoque (padrão: 0)
+   - Peso (kg/g)
+   - Dimensões: Altura, Largura, Comprimento (cm)
+
+   ✍️ Conteúdo & Organização:
+   - Descrição Complementar
+   - Imagem (foto do produto)
+   - Categoria (dropdown - padrão: "Diversos")
+   - Marca/Fabricante (dropdown)
+
+6. CATEGORIAS (dropdown - 23 opções):
+   Alimentos e Bebidas, Limpeza e Higiene, Padaria e Confeitaria,
+   Carnes e Aves, Laticínios, Frutas e Verduras, Bebidas Alcoólicas,
+   Bebidas Não Alcoólicas, Produtos de Higiene Pessoal,
+   Produtos de Limpeza, Utilidades Domésticas, Petiscos e Snacks,
+   Congelados, Enlatados e Conservas, Grãos e Cereais,
+   Temperos e Condimentos, Doces e Sobremesas, Bebidas em Pó,
+   Produtos Diet e Light, Orgânicos, Importados, Diversos
+
+7. MARCAS (dropdown - 35+ opções):
+   Nestlé, Coca-Cola, PepsiCo, Unilever, Procter & Gamble, Ambev,
+   Bunge, Cargill, BRF, JBS, M. Dias Branco, Vigor, Danone, Bauducco,
+   Marilan, Piraquê, Yoki, Arisco, Knorr, Maggi, Hellmann's, Omo,
+   Comfort, Downy, Ariel, Head & Shoulders, Pantene, Dove, Rexona,
+   Axe, Nivea, Johnson & Johnson, Colgate, Close Up, Oral-B, Gillette,
+   Outras (digitação livre)
+
+8. FUNCIONALIDADES
+   - Pesquisar por nome (tempo real)
+   - Filtrar por categoria
+   - Cadastrar produto
+   - Editar produto (formulário preenchido)
+   - Excluir produto (com confirmação)
+   - Alterar quantidade em estoque (modal rápido)
+   - Upload/alterar/excluir imagem
+
+9. ARMAZENAMENTO
+   - localStorage, chave: 'products'
+   - Estrutura: id, nome, sku, codigoBarras, custo, precoVenda, ncm,
+     quantidadeEstoque, peso, altura, largura, comprimento, descricao,
+     imagem, categoria, marca, createdAt, updatedAt
+
+10. VALIDAÇÕES
+    - Nome do Produto: obrigatório
+    - Preço de Venda: obrigatório, > 0
+    - Quantidade: número inteiro >= 0
+    - Valores monetários: formatar corretamente
+    - Imagens: validar tipo e tamanho
+
+11. PADRÃO VISUAL
+    - Usar mesmas classes CSS dos cards de clientes
+    - Manter consistência visual
+    - Reutilizar componentes existentes
+    - Modais seguem padrão existente
+
+================================================================================
+IMPORTANTE: 
+- Fazer com calma, testar cada parte
+- Não quebrar funcionalidades existentes
+- Campos não marcados como "Opcional" = OBRIGATÓRIO
+- Padrão: Quantidade = 0, Categoria = "Diversos"
+================================================================================

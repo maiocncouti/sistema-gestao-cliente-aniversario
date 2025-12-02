@@ -1,0 +1,542 @@
+================================================================================
+INSTRUÇÕES PARA IMPLEMENTAÇÃO DO SISTEMA DE CONTROLE DE ESTOQUE E PRODUTOS
+================================================================================
+
+OBJETIVO:
+Criar um sistema completo de controle de estoque com gerenciamento de produtos,
+seguindo o mesmo padrão visual e estrutural já existente no sistema de clientes.
+
+================================================================================
+PARTE 1: CRIAÇÃO DA ESTRUTURA DE MENU PRINCIPAL
+================================================================================
+
+1. CRIAR MENU "CONTROLE DE ESTOQUE" NO MENU PRINCIPAL
+   - Adicionar um novo botão no menu de navegação principal (header)
+   - O botão deve aparecer entre "Clientes" e o menu "⋯" (mais opções)
+   - Texto do botão: "Controle de Estoque"
+   - Ao clicar, deve mostrar a seção de controle de estoque
+
+2. CRIAR SEÇÃO "CONTROLE DE ESTOQUE"
+   - Criar uma nova seção com id="inventory" seguindo o padrão das outras seções
+   - Esta seção deve ter um layout similar à seção de clientes
+   - Deve ter um menu lateral (sidebar) ou menu de opções na tela com:
+     * "📦 Produtos" (Opção principal a ser desenvolvida - ATIVA POR PADRÃO)
+     * "📥 Entradas/Recebimentos" (Para implementação futura)
+     * "📤 Saídas/Vendas" (Para implementação futura)
+     * "📊 Relatórios" (Para implementação futura)
+     * "⚙️ Configurações" (Para implementação futura)
+
+================================================================================
+PARTE 2: TELA 'CONTROLE DE ESTOQUE' - MENU DE OPÇÕES
+================================================================================
+
+3. EXIBIR OPÇÕES COMO MENUS/BOTÕES NA TELA
+   Ao acessar 'Controle de Estoque', exibir as seguintes opções como menus/botões:
+   - 📦 Produtos (Opção principal a ser desenvolvida)
+   - 📥 Entradas/Recebimentos (placeholder para futuro)
+   - 📤 Saídas/Vendas (placeholder para futuro)
+   - 📊 Relatórios (placeholder para futuro)
+   - ⚙️ Configurações (placeholder para futuro)
+
+   NOTA: Por enquanto, apenas "Produtos" será funcional. As outras opções podem
+   ser botões/links que mostram uma mensagem "Em desenvolvimento" ou simplesmente
+   não fazem nada ainda.
+
+================================================================================
+PARTE 3: DESENVOLVIMENTO DA TELA 'PRODUTOS'
+================================================================================
+
+4. ACESSO À TELA DE PRODUTOS
+   Ao clicar na opção 'Produtos' (dentro de 'Controle de Estoque'), o sistema
+   deve exibir a tela de listagem de produtos.
+
+4.1. ESTRUTURA E FUNCIONALIDADES DA TELA DE PRODUTOS
+
+4.2. CABEÇALHO E AÇÕES (ACIMA DOS CARDS)
+   No topo da tela, acima da listagem de cards, implementar:
+   
+   a) Botão "Cadastrar Novo Produto"
+      - Inicia o fluxo de cadastro
+      - Estilo: botão primário (btn btn-primary)
+      - Ao clicar: mostrar formulário de cadastro
+   
+   b) Barra de Pesquisa
+      - Permite pesquisar produtos por Nome
+      - Input type="text" com placeholder "Pesquisar por nome..."
+      - Busca em tempo real (filtrar enquanto digita)
+      - Ícone de pesquisa (🔍) opcional
+   
+   c) Filtro por Categoria
+      - Um seletor de lista (select/dropdown)
+      - Permite filtrar a exibição dos produtos por Categoria
+      - Primeira opção: "Todas as Categorias" (mostra todos)
+      - Demais opções: lista de categorias disponíveis
+      - Ao selecionar uma categoria, filtrar produtos em tempo real
+
+4.3. LISTAGEM DE PRODUTOS (LAYOUT DE CARDS)
+   Exibir todos os produtos cadastrados em formato de Card, similar ao layout
+   utilizado na tela de clientes.
+   
+   CONTEÚDO DO CARD (Visualização Rápida):
+   - Nome do Produto (em destaque, h3 ou similar)
+   - Foto do Produto (Miniatura visível, mas clara)
+     * Se não houver foto, mostrar ícone padrão (📦 ou similar)
+     * Tamanho da miniatura: suficiente para ver o produto claramente
+   - Valor Custo
+     * Formato: "Custo: R$ XX,XX" ou similar
+     * Se não houver custo, mostrar "Custo: Não informado"
+   - Preço de Venda
+     * Formato: "Venda: R$ XX,XX" ou similar
+     * Em destaque (pode ser maior ou em cor diferente)
+   - Qtde em Estoque
+     * Formato: "Estoque: XX unidades" ou similar
+     * Pode ter indicador visual se estoque baixo (ex: < 10 unidades)
+   - Categoria (opcional, pode ser um badge/chip)
+     * Exibir como badge pequeno no card
+
+   ESTILO DO CARD:
+   - Usar a mesma classe CSS "clients-list" e "client-card" para manter
+     consistência visual
+   - Cards devem ser clicáveis (cursor pointer)
+   - Efeito hover (elevação/sombra ao passar o mouse)
+   - Grid responsivo (adaptar número de colunas ao tamanho da tela)
+
+4.4. AÇÃO AO CLICAR NO CARD (MODAL/POP-UP DE DETALHES)
+   Ao clicar em qualquer Card de Produto, um painel ou modal deve aparecer,
+   exibindo:
+   
+   INFORMAÇÕES DE DESTAQUE:
+   - Nome do Produto (em destaque, título do modal)
+   - Foto em Miniatura (visível, mas clara)
+   
+   OPÇÕES DE AÇÃO:
+   - ✏️ Editar Produto
+     * Redireciona para o formulário de cadastro preenchido com os dados
+       do produto
+     * Permite alterar todos os campos
+   
+   - 📊 Alterar Qtde em Estoque
+     * Abre um campo para inserção rápida da nova quantidade
+     * Pode ser um modal menor ou um input dentro do modal de detalhes
+     * Validar que a quantidade seja um número inteiro >= 0
+     * Botão "Salvar" para confirmar a alteração
+   
+   - 🗑️ Excluir Produto
+     * Deve solicitar confirmação antes de excluir
+     * Mensagem: "Tem certeza que deseja excluir este produto?"
+     * Botões: "Confirmar" e "Cancelar"
+     * Após confirmar, excluir o produto e fechar o modal
+     * Atualizar a lista de produtos
+   
+   OPÇÕES PARA IMAGEM (Dentro do detalhe do produto):
+   - 🖼️ Alterar Imagem
+     * Abrir seletor de arquivo
+     * Usar o mesmo sistema de cropping já existente no projeto
+     * Após selecionar/recortar, atualizar a imagem do produto
+     * Atualizar preview no modal e no card
+   
+   - 🗑️ Excluir Imagem
+     * Deve solicitar confirmação
+     * Após confirmar, remover a imagem do produto
+     * Atualizar visualização (mostrar ícone padrão)
+
+================================================================================
+PARTE 4: FORMULÁRIO DE CADASTRO/EDIÇÃO DE PRODUTO
+================================================================================
+
+5. ACESSO AO FORMULÁRIO
+   O formulário deve ser acessível através de:
+   - Botão "Cadastrar Novo Produto" (modo cadastro - campos vazios)
+   - Opção "Editar Produto" no modal de detalhes (modo edição - campos preenchidos)
+
+6. ESTRUTURA DO FORMULÁRIO
+   O formulário deve apresentar os campos agrupados por seções, conforme abaixo:
+
+6.1. 🌟 IDENTIFICAÇÃO & NOMENCLATURA
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ Campo                    │ Tipo    │ Obrigatoriedade │ Observações│
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Nome do Produto          │ Texto   │ OBRIGATÓRIO     │            │
+   │ SKU                      │ Texto   │ Opcional        │            │
+   │ Código de Barras (EAN/UPC)│ Texto   │ Opcional        │            │
+   └─────────────────────────────────────────────────────────────────┘
+
+   IMPLEMENTAÇÃO:
+   - Nome do Produto: input type="text" com required
+   - SKU: input type="text" (sem required)
+   - Código de Barras: input type="text" (sem required)
+
+6.2. 💰 PREÇO & FINANÇAS
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ Campo                    │ Tipo    │ Obrigatoriedade │ Observações│
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Custo                    │ Valor   │ Opcional        │ Marcar como│
+   │                          │ Monetário│                │ crucial para│
+   │                          │         │                │ o negócio, │
+   │                          │         │                │ mas não    │
+   │                          │         │                │ impede o    │
+   │                          │         │                │ cadastro    │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Preço de Venda           │ Valor   │ OBRIGATÓRIO     │            │
+   │                          │ Monetário│                │            │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ NCM (Nomenclatura Comum  │ Texto   │ Opcional        │            │
+   │ do Mercosul)             │         │                │            │
+   └─────────────────────────────────────────────────────────────────┘
+
+   IMPLEMENTAÇÃO:
+   - Custo: input type="number" step="0.01" min="0" (sem required)
+     * Formatar como valor monetário (R$ XX,XX)
+     * Placeholder: "0,00"
+   
+   - Preço de Venda: input type="number" step="0.01" min="0" com required
+     * Formatar como valor monetário (R$ XX,XX)
+     * Placeholder: "0,00"
+   
+   - NCM: input type="text" (sem required)
+     * Placeholder: "Ex: 12345678"
+
+6.3. 📦 ESTOQUE & LOGÍSTICA
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ Campo                    │ Tipo    │ Obrigatoriedade │ Observações│
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Quantidade em Estoque   │ Numérico│ Opcional        │ Se não     │
+   │                          │ Inteiro │                │ preenchido,│
+   │                          │         │                │ valor      │
+   │                          │         │                │ padrão = 0 │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Peso (para cálculo de   │ Numérico│ Opcional        │ Em kg/g    │
+   │ frete)                   │ (Kg/g)  │                │            │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Dimensões                │ Numérico│ Opcional        │ Três campos│
+   │ (Altura, Largura,        │ (cm/m)  │                │ separados  │
+   │ Comprimento)             │         │                │            │
+   └─────────────────────────────────────────────────────────────────┘
+
+   IMPLEMENTAÇÃO:
+   - Quantidade em Estoque: input type="number" min="0" step="1" (sem required)
+     * Valor padrão: 0 (se não preenchido)
+     * Placeholder: "0"
+   
+   - Peso: input type="number" step="0.01" min="0" (sem required)
+     * Placeholder: "0,00"
+     * Label adicional: "kg" ou "g" (definir unidade padrão)
+   
+   - Dimensões (três campos separados):
+     * Altura: input type="number" step="0.01" min="0" (sem required)
+       Placeholder: "0,00" | Label: "Altura (cm)"
+     * Largura: input type="number" step="0.01" min="0" (sem required)
+       Placeholder: "0,00" | Label: "Largura (cm)"
+     * Comprimento: input type="number" step="0.01" min="0" (sem required)
+       Placeholder: "0,00" | Label: "Comprimento (cm)"
+
+6.4. ✍️ CONTEÚDO & ORGANIZAÇÃO
+
+   ┌─────────────────────────────────────────────────────────────────┐
+   │ Campo                    │ Tipo    │ Obrigatoriedade │ Observações│
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Descrição Complementar   │ Área de │ Opcional        │            │
+   │                          │ Texto   │                │            │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Imagens                  │ Upload  │ Opcional        │ Opção para │
+   │                          │ de      │                │ adicionar  │
+   │                          │ Arquivo │                │ uma foto   │
+   │                          │         │                │ principal  │
+   │                          │         │                │ do produto │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Categoria                │ Lista de│ Opcional        │ Apresentar│
+   │                          │ Seleção │                │ todas as   │
+   │                          │ (Dropdown)│              │ Categorias │
+   │                          │         │                │ existentes │
+   │                          │         │                │ para       │
+   │                          │         │                │ produtos de│
+   │                          │         │                │ mercado.   │
+   │                          │         │                │ Se não     │
+   │                          │         │                │ selecionado│
+   │                          │         │                │, padrão =  │
+   │                          │         │                │ 'Diversos' │
+   ├───────────────────────────┼─────────┼─────────────────┼────────────┤
+   │ Marca/Fabricante         │ Lista de│ Opcional        │ Apresentar│
+   │                          │ Seleção │                │ todas as   │
+   │                          │ (Dropdown)│              │ Marcas     │
+   │                          │         │                │ existentes│
+   │                          │         │                │ para       │
+   │                          │         │                │ produtos de│
+   │                          │         │                │ mercado    │
+   └─────────────────────────────────────────────────────────────────┘
+
+   IMPLEMENTAÇÃO:
+   - Descrição Complementar: textarea rows="4" (sem required)
+     * Placeholder: "Descrição do produto..."
+   
+   - Imagens: input type="file" accept="image/*" (sem required)
+     * Permitir upload de uma foto principal do produto
+     * Mostrar preview da imagem após seleção
+     * Usar o mesmo sistema de cropping já existente no projeto
+     * Opção para remover imagem após upload
+   
+   - Categoria: select/dropdown (sem required)
+     * Primeira opção: "Selecione uma categoria..." (valor vazio)
+     * Se não selecionado, valor padrão = "Diversos"
+     * Lista de categorias pré-definidas (ver lista completa abaixo)
+   
+   - Marca/Fabricante: select/dropdown (sem required)
+     * Primeira opção: "Selecione uma marca..." (valor vazio)
+     * Lista de marcas pré-definidas (ver lista completa abaixo)
+     * Última opção: "Outras" (permitir digitação livre ou campo de texto)
+
+7. LISTA DE CATEGORIAS (Dropdown)
+   Apresentar todas as categorias existentes para produtos de mercado:
+   
+   - Alimentos e Bebidas
+   - Limpeza e Higiene
+   - Padaria e Confeitaria
+   - Carnes e Aves
+   - Laticínios
+   - Frutas e Verduras
+   - Bebidas Alcoólicas
+   - Bebidas Não Alcoólicas
+   - Produtos de Higiene Pessoal
+   - Produtos de Limpeza
+   - Utilidades Domésticas
+   - Petiscos e Snacks
+   - Congelados
+   - Enlatados e Conservas
+   - Grãos e Cereais
+   - Temperos e Condimentos
+   - Doces e Sobremesas
+   - Bebidas em Pó
+   - Produtos Diet e Light
+   - Orgânicos
+   - Importados
+   - Diversos (valor padrão se não selecionado)
+
+8. LISTA DE MARCAS/FABRICANTES (Dropdown)
+   Apresentar todas as marcas existentes para produtos de mercado:
+   
+   - Nestlé
+   - Coca-Cola
+   - PepsiCo
+   - Unilever
+   - Procter & Gamble
+   - Ambev
+   - Bunge
+   - Cargill
+   - BRF
+   - JBS
+   - M. Dias Branco
+   - Vigor
+   - Danone
+   - Bauducco
+   - Marilan
+   - Piraquê
+   - Yoki
+   - Arisco
+   - Knorr
+   - Maggi
+   - Hellmann's
+   - Omo
+   - Comfort
+   - Downy
+   - Ariel
+   - Head & Shoulders
+   - Pantene
+   - Dove
+   - Rexona
+   - Axe
+   - Nivea
+   - Johnson & Johnson
+   - Colgate
+   - Close Up
+   - Oral-B
+   - Gillette
+   - Outras (permitir digitação livre ou campo de texto adicional)
+
+9. OBSERVAÇÃO FINAL SOBRE CAMPOS OBRIGATÓRIOS
+   Qualquer campo que NÃO esteja explicitamente marcado como "Opcional" deve
+   ser considerado OBRIGATÓRIO para a conclusão do cadastro ou alteração do
+   produto.
+   
+   CAMPOS OBRIGATÓRIOS:
+   - Nome do Produto
+   - Preço de Venda
+   
+   TODOS OS DEMAIS CAMPOS SÃO OPCIONAIS.
+
+================================================================================
+PARTE 5: FUNCIONALIDADES E COMPORTAMENTOS
+================================================================================
+
+10. FUNCIONALIDADES DE PESQUISA E FILTRO
+    - Barra de pesquisa: filtrar produtos por nome (busca em tempo real)
+      * Ao digitar, filtrar produtos cujo nome contenha o texto digitado
+      * Case-insensitive (não diferenciar maiúsculas/minúsculas)
+      * Atualizar lista de cards em tempo real
+    
+    - Filtro por categoria: mostrar apenas produtos da categoria selecionada
+      * Ao selecionar uma categoria, filtrar produtos
+      * Opção "Todas as Categorias" mostra todos os produtos
+      * Combinar com pesquisa por nome (ambos os filtros ativos simultaneamente)
+
+11. FUNCIONALIDADES DE ESTOQUE
+    - Alterar Quantidade em Estoque:
+      * Abrir modal/painel para alterar apenas a quantidade
+      * Mostrar quantidade atual
+      * Campo para inserir nova quantidade
+      * Validar que seja número inteiro >= 0
+      * Botão "Salvar" para confirmar
+      * Registrar a alteração (pode adicionar ao log do sistema)
+      * Atualizar card do produto após alteração
+
+12. FUNCIONALIDADES DE IMAGEM
+    - Upload de imagem: usar o mesmo sistema de cropping já existente no projeto
+    - Preview da imagem após upload (no formulário e no card)
+    - Opção para alterar imagem (substituir)
+    - Opção para excluir imagem (remover do produto)
+    - Validar tipo de arquivo (apenas imagens)
+    - Validar tamanho do arquivo (sugestão: máximo 5MB)
+
+13. VALIDAÇÕES DO FORMULÁRIO
+    - Campos obrigatórios devem ser validados antes de salvar
+      * Nome do Produto: não pode estar vazio
+      * Preço de Venda: deve ser um número válido > 0
+    - Campos numéricos devem aceitar apenas números
+    - Valores monetários devem ser formatados corretamente
+    - Imagens devem ser validadas (tipo e tamanho)
+    - Mostrar mensagens de erro claras abaixo de cada campo inválido
+    - Não permitir salvar se houver campos obrigatórios inválidos
+
+14. PERSISTÊNCIA DE DADOS
+    - Armazenar produtos no localStorage (seguindo o padrão do projeto)
+    - Chave: 'products'
+    - Estrutura do objeto produto:
+      {
+        id: string (gerar ID único, ex: UUID ou timestamp + random),
+        nome: string (obrigatório),
+        sku: string (opcional, pode ser vazio),
+        codigoBarras: string (opcional, pode ser vazio),
+        custo: number (opcional, pode ser null ou 0),
+        precoVenda: number (obrigatório),
+        ncm: string (opcional, pode ser vazio),
+        quantidadeEstoque: number (padrão: 0),
+        peso: number (opcional, pode ser null),
+        altura: number (opcional, pode ser null),
+        largura: number (opcional, pode ser null),
+        comprimento: number (opcional, pode ser null),
+        descricao: string (opcional, pode ser vazio),
+        imagem: string (base64 ou URL, opcional, pode ser vazio),
+        categoria: string (padrão: "Diversos" se não selecionado),
+        marca: string (opcional, pode ser vazio),
+        createdAt: string (ISO date),
+        updatedAt: string (ISO date)
+      }
+
+15. INTEGRAÇÃO COM SISTEMA EXISTENTE
+    - Adicionar logs ao sistema de log existente para:
+      * Criar produto (action: 'create_product')
+      * Editar produto (action: 'edit_product')
+      * Excluir produto (action: 'delete_product')
+      * Alterar quantidade em estoque (action: 'update_product_stock')
+    - Respeitar permissões de usuário (admin/funcionário) se aplicável
+    - Verificar licença antes de permitir acesso (se necessário)
+    - Usar as mesmas funções de log já existentes no projeto
+
+================================================================================
+PARTE 6: ESTILO E DESIGN
+================================================================================
+
+16. CONSISTÊNCIA VISUAL
+    - Usar as mesmas classes CSS já existentes para cards (client-card)
+    - Manter o mesmo padrão de cores e estilos
+    - Botões devem seguir o mesmo padrão visual
+    - Modais devem seguir o mesmo padrão já existente
+    - Formulários devem seguir o mesmo padrão de form-group, labels, inputs
+
+17. RESPONSIVIDADE
+    - Garantir que a tela funcione bem em diferentes tamanhos de tela
+    - Cards devem se adaptar ao tamanho da tela (grid responsivo)
+    - Formulário deve ser responsivo (campos empilham em telas pequenas)
+    - Modais devem ser responsivos
+
+18. FEEDBACK VISUAL
+    - Mostrar loading/spinner ao salvar produto
+    - Mostrar mensagem de sucesso após salvar
+    - Mostrar mensagem de erro se houver problema
+    - Indicar visualmente produtos com estoque baixo (ex: < 10 unidades)
+
+================================================================================
+PARTE 7: DETALHES TÉCNICOS
+================================================================================
+
+19. ESTRUTURA DE ARQUIVOS
+    - Adicionar HTML na seção apropriada do index.html
+    - Adicionar funções JavaScript no script.js
+    - Adicionar estilos CSS no styles.css (se necessário, mas preferir reutilizar)
+
+20. FUNÇÕES JAVASCRIPT NECESSÁRIAS
+    - loadProducts() - carregar e exibir produtos
+    - showProductsListView() - mostrar lista de produtos
+    - showProductsRegisterView() - mostrar formulário de cadastro
+    - handleProductSubmit() - processar cadastro/edição
+    - deleteProduct(productId) - excluir produto
+    - openProductDetailsModal(productId) - abrir modal de detalhes
+    - openEditProductModal(productId) - abrir modal de edição
+    - alterProductStock(productId) - alterar quantidade em estoque
+    - searchProducts(query) - pesquisar produtos
+    - filterProductsByCategory(category) - filtrar por categoria
+    - saveProducts() - salvar no localStorage
+    - loadProductsFromStorage() - carregar do localStorage
+    - generateProductId() - gerar ID único para produto
+    - formatCurrency(value) - formatar valores monetários
+    - validateProductForm() - validar formulário antes de salvar
+
+21. VALIDAÇÕES E TRATAMENTO DE ERROS
+    - Validar campos obrigatórios antes de salvar
+    - Mostrar mensagens de erro claras
+    - Confirmar antes de excluir produto
+    - Confirmar antes de excluir imagem
+    - Tratar erros de localStorage (quota excedida, etc.)
+    - Validar formato de números e valores monetários
+
+================================================================================
+OBSERVAÇÕES IMPORTANTES
+================================================================================
+
+- Fazer com calma para não travar o projeto
+- Testar cada funcionalidade antes de adicionar a próxima
+- Manter consistência com o código existente
+- Reutilizar componentes e estilos já existentes
+- Seguir o padrão de nomenclatura já usado no projeto
+- Garantir que não quebre funcionalidades existentes
+- Campos marcados como OBRIGATÓRIO devem ser validados
+- Campos marcados como Opcional podem ficar vazios
+- Valor padrão para Quantidade em Estoque: 0 (zero)
+- Valor padrão para Categoria: "Diversos"
+
+================================================================================
+ORDEM DE IMPLEMENTAÇÃO SUGERIDA
+================================================================================
+
+1. Criar menu "Controle de Estoque" no header e seção básica
+2. Criar menu de opções dentro de "Controle de Estoque" (Produtos, Entradas, etc.)
+3. Criar estrutura HTML da tela de produtos (lista)
+4. Implementar armazenamento e carregamento de produtos (localStorage)
+5. Criar formulário de cadastro com todos os campos organizados por seções
+6. Implementar exibição de produtos em cards
+7. Implementar modal de detalhes do produto
+8. Implementar pesquisa e filtro
+9. Implementar edição de produto
+10. Implementar exclusão de produto
+11. Implementar alteração de quantidade em estoque
+12. Implementar upload e gerenciamento de imagens
+13. Adicionar validações do formulário
+14. Adicionar logs ao sistema
+15. Testar todas as funcionalidades
+16. Ajustar estilos e responsividade
+
+================================================================================
+FIM DAS INSTRUÇÕES
+================================================================================

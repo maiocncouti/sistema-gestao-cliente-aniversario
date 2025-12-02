@@ -1,5 +1,198 @@
+function normalizeText(value) {
+    return value
+        ? value.toString().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+        : '';
+}
+
+function findProductByBarcode(barcode) {
+    if (!barcode) return null;
+    const code = barcode.toString().trim();
+    return products.find(p =>
+        (p.codigoBarras && p.codigoBarras.toString() === code) ||
+        (p.barcode && p.barcode.toString() === code) ||
+        (p.sku && p.sku.toString() === code)
+    ) || null;
+}
+
+function fillSaleFieldsForProduct(product) {
+    if (!product) return;
+    const nomeProduto = product.nome || product.name || 'DIVERSOS';
+    const codigoBarras = product.codigoBarras || product.barcode || '';
+    const precoVenda = product.precoVenda || product.salePrice || 0;
+    
+    document.getElementById('sale-quantity').value = 1;
+    document.getElementById('sale-description').value = nomeProduto;
+    document.getElementById('sale-barcode').value = codigoBarras;
+    document.getElementById('sale-unit-value').value = precoVenda;
+}
+
+function focusDescriptionField() {
+    setTimeout(() => {
+        const descriptionField = document.getElementById('sale-description');
+        if (descriptionField) {
+            descriptionField.focus();
+            descriptionField.select();
+        }
+    }, 50);
+}
+
+function updateSalePanelVisibility() {
+    const saleItemsContainer = document.getElementById('sale-items-container');
+    const productPanel = document.getElementById('product-search-inline-panel');
+    const clientPanel = document.getElementById('client-search-inline-panel');
+    if (productPanel) productPanel.style.display = isProductSearchOpen ? 'flex' : 'none';
+    if (clientPanel) clientPanel.style.display = isClientSearchOpen ? 'flex' : 'none';
+    if (saleItemsContainer) {
+        saleItemsContainer.style.display = (!isProductSearchOpen && !isClientSearchOpen) ? 'block' : 'none';
+    }
+}
+
+function closeClientSearch() {
+    isClientSearchOpen = false;
+    selectedClientIndex = -1;
+    updateSalePanelVisibility();
+}
+
+function formatEMV(id, value) {
+    const length = value.length.toString().padStart(2, '0');
+    return `${id}${length}${value}`;
+}
+
+function calculateCRC16(payload) {
+    let crc = 0xFFFF;
+    for (let i = 0; i < payload.length; i++) {
+        crc ^= payload.charCodeAt(i) << 8;
+        for (let j = 0; j < 8; j++) {
+            if ((crc & 0x8000) !== 0) {
+                crc = (crc << 1) ^ 0x1021;
+            } else {
+                crc <<= 1;
+            }
+            crc &= 0xFFFF;
+        }
+    }
+    return crc.toString(16).toUpperCase().padStart(4, '0');
+}
+
+function generatePixPayload(value, pixKey, merchantName) {
+    const sanitizedKey = pixKey.replace(/\s+/g, '');
+    const gui = formatEMV('00', 'br.gov.bcb.pix');
+    const keyField = formatEMV('01', sanitizedKey);
+    const merchantInfo = formatEMV('26', gui + keyField);
+    const merchantNameField = formatEMV('59', (merchantName || 'RECEBEDOR').toUpperCase().substring(0, 25));
+    const amountField = formatEMV('54', value.toFixed(2));
+    let payload =
+        formatEMV('00', '01') +
+        formatEMV('01', '12') +
+        merchantInfo +
+        formatEMV('52', '0000') +
+        formatEMV('53', '986') +
+        amountField +
+        formatEMV('58', 'BR') +
+        merchantNameField +
+        formatEMV('60', 'BRASIL') +
+        formatEMV('62', formatEMV('05', '***'));
+    payload += '6304';
+    const crc = calculateCRC16(payload);
+    return payload + crc;
+}
+
+function getPixPaymentData() {
+    const combos = [
+        { select: document.getElementById('payment-method-1'), value: document.getElementById('payment-value-1') },
+        { select: document.getElementById('payment-method-2'), value: document.getElementById('payment-value-2') }
+    ];
+    for (const combo of combos) {
+        if (!combo.select || !combo.value) continue;
+        const methodName = combo.select.value;
+        if (!methodName) continue;
+        const method = paymentMethods.find(m => m.name === methodName);
+        if (method && method.name && method.name.toLowerCase() === 'pix' && method.pixKey && method.pixRecipient) {
+            const amount = parseFloat(combo.value.value) || 0;
+            if (amount > 0) {
+                return { amount, method };
+            }
+        }
+    }
+    return null;
+}
+
+function showPixPayment(data) {
+    const pixInfo = document.getElementById('sales-pix-info');
+    const qrEl = document.getElementById('sales-pix-qr');
+    const keyEl = document.getElementById('sales-pix-key');
+    const copyBtn = document.getElementById('sales-pix-copy');
+    const logoImg = document.getElementById('sales-company-logo');
+    const logoVideo = document.getElementById('sales-company-logo-video');
+    const placeholderEl = document.getElementById('sales-logo-placeholder');
+    if (!pixInfo || !qrEl || !keyEl) return;
+    
+    const payload = generatePixPayload(data.amount, data.method.pixKey, data.method.pixRecipient);
+    const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&data=${encodeURIComponent(payload)}`;
+    qrEl.src = qrUrl;
+    keyEl.textContent = `${data.method.pixRecipient || 'Recebedor'} • ${formatCurrency(data.amount)} • ${data.method.pixKey}`;
+    pixInfo.dataset.payload = payload;
+    pixInfo.style.display = 'flex';
+    if (copyBtn) {
+        copyBtn.onclick = () => copyPixPayload(payload);
+    }
+    // Esconder logo (imagem ou vídeo) e placeholder
+    if (logoImg) logoImg.style.display = 'none';
+    if (logoVideo) logoVideo.style.display = 'none';
+    if (placeholderEl) placeholderEl.style.display = 'none';
+}
+
+function hidePixPayment() {
+    const pixInfo = document.getElementById('sales-pix-info');
+    if (pixInfo) {
+        pixInfo.style.display = 'none';
+        pixInfo.dataset.payload = '';
+    }
+    loadCompanyLogo();
+}
+
+function copyPixPayload(payload) {
+    const data = payload || document.getElementById('sales-pix-info')?.dataset.payload;
+    if (!data) return;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(data);
+    } else {
+        const temp = document.createElement('textarea');
+        temp.value = data;
+        document.body.appendChild(temp);
+        temp.select();
+        document.execCommand('copy');
+        document.body.removeChild(temp);
+    }
+}
+
 // Armazenamento de dados
 let clients = JSON.parse(localStorage.getItem('clients')) || [];
+let products = JSON.parse(localStorage.getItem('products')) || [];
+let brands = JSON.parse(localStorage.getItem('brands')) || [];
+let categories = JSON.parse(localStorage.getItem('categories')) || [];
+let editingProductId = null;
+let selectedProductId = null;
+let suppliers = JSON.parse(localStorage.getItem('suppliers')) || [];
+let editingSupplierId = null;
+let selectedSupplierId = null;
+let paymentMethods = JSON.parse(localStorage.getItem('paymentMethods')) || [];
+let editingPaymentMethodId = null;
+let sales = JSON.parse(localStorage.getItem('sales')) || [];
+let receivables = JSON.parse(localStorage.getItem('receivables')) || [];
+let currentSale = null;
+let saleItemIndex = -1;
+let discountType = 'percent'; // 'percent' ou 'real'
+let globalDiscount = 0; // Desconto global da venda
+let currentTotalLiquid = 0; // Total calculado da venda (antes dos pagamentos)
+let currentTotalPaid = 0; // Soma paga
+let currentRemainingTotal = 0; // Valor restante a pagar
+let selectedProductIndex = -1; // Índice selecionado na lista de produtos
+let productSearchResults = []; // Resultados atuais da pesquisa
+let isProductSearchOpen = false;
+let selectedClientIndex = -1;
+let clientSearchResults = [];
+let isClientSearchOpen = false;
 // Carregar dados da empresa do localStorage
 let savedCompanyData = JSON.parse(localStorage.getItem('companyData')) || {};
 let companyData = {
@@ -20,6 +213,13 @@ let licenseData = JSON.parse(localStorage.getItem('licenseData')) || null;
 let licenseActivations = JSON.parse(localStorage.getItem('licenseActivations')) || {}; // {key: {year: activationDate}}
 let used3DayKey = JSON.parse(localStorage.getItem('used3DayKey')) || false; // Chave de 3 dias só pode ser usada uma vez
 let usedAnnualKeys = JSON.parse(localStorage.getItem('usedAnnualKeys')) || {}; // {key: true} - chaves anuais usadas
+
+// Controle de Salvamento Automático
+let autoSaveEnabled = JSON.parse(localStorage.getItem('autoSaveEnabled'));
+if (autoSaveEnabled === null) {
+    autoSaveEnabled = true; // Por padrão, ativado
+    localStorage.setItem('autoSaveEnabled', JSON.stringify(true));
+}
 
 // Sistema de Usuários
 let users = JSON.parse(localStorage.getItem('users')) || [];
@@ -50,14 +250,17 @@ let buttonStyleSettings = JSON.parse(localStorage.getItem('buttonStyleSettings')
     borderEnabled: true
 };
 
-// Controle de Salvamento Automático
-let autoSaveEnabled = JSON.parse(localStorage.getItem('autoSaveEnabled')) || false;
-
 // Timeout de sessão (5 minutos em milissegundos)
 const SESSION_TIMEOUT = 5 * 60 * 1000; // 5 minutos
 
 // Sistema de Personalização de Tema por Usuário
 let userThemeSettings = JSON.parse(localStorage.getItem('userThemeSettings')) || {};
+let inactivityTimeoutSettings = JSON.parse(localStorage.getItem('inactivityTimeoutSettings')) || {
+    admin: { hours: 0, minutes: 0 },
+    funcionario: { hours: 0, minutes: 0 }
+};
+let userPermissions = JSON.parse(localStorage.getItem('userPermissions')) || {};
+let editingPermissionsUserId = null;
 let sessionTimeoutId = null;
 
 // Inicializar usuários padrão se não existirem
@@ -593,6 +796,13 @@ function initializeApplication() {
     document.addEventListener('mousemove', updateLastActivity);
     
     // Carregar tema padrão na inicialização (antes do login)
+    
+    // Atualizar status do auto-save se a seção de backup estiver visível
+    setTimeout(() => {
+        if (document.getElementById('backup') && document.getElementById('backup').classList.contains('active')) {
+            updateAutoSaveStatus();
+        }
+    }, 100);
     // O checkLoginStatus() irá carregar o tema do usuário se ele estiver logado
     applyDefaultTheme();
     
@@ -896,32 +1106,8 @@ function setupEventListeners() {
         });
     });
 
-    // Cards do dashboard (Clientes Cadastrados e Aniversários Hoje)
-    const totalClientsCard = document.querySelector('.stat-card:nth-child(1)');
-    const todayBirthdaysCard = document.querySelector('.stat-card:nth-child(2)');
-
-    if (totalClientsCard) {
-        totalClientsCard.style.cursor = 'pointer';
-        totalClientsCard.addEventListener('click', () => {
-            if (isLicenseExpired()) {
-                showSection('license');
-                return;
-            }
-            showSection('all-clients');
-            showClientsListView();
-        });
-    }
-
-    if (todayBirthdaysCard) {
-        todayBirthdaysCard.style.cursor = 'pointer';
-        todayBirthdaysCard.addEventListener('click', () => {
-            if (isLicenseExpired()) {
-                showSection('license');
-                return;
-            }
-            showSection('greetings');
-        });
-    }
+    // Cards movidos para outras seções - event listeners serão configurados dinamicamente
+    setupCardEventListeners();
 
     // Formulário de cadastro de cliente
     document.getElementById('client-form').addEventListener('submit', handleClientSubmit);
@@ -1028,25 +1214,45 @@ function setupEventListeners() {
         loginForm.addEventListener('submit', handleLogin);
     }
     
-    // Toggle de salvamento automático
+    // Toggle do Salvamento Automático
     const autoSaveToggle = document.getElementById('auto-save-toggle');
     if (autoSaveToggle) {
         autoSaveToggle.addEventListener('change', toggleAutoSave);
     }
     
-    // Event listener para fechar navegador/aba
-    window.addEventListener('beforeunload', (e) => {
-        // Tentar fazer salvamento automático antes de fechar
-        // Nota: Alguns navegadores podem bloquear downloads durante beforeunload
-        try {
-            performAutoSave();
-        } catch (error) {
-            console.log('Erro ao realizar salvamento automático antes de fechar:', error);
-        }
-    });
+    // Formulário de visibilidade de estoque
+    const stockVisibilityForm = document.getElementById('stock-visibility-form');
+    if (stockVisibilityForm) {
+        stockVisibilityForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveStockVisibilitySettings();
+        });
+    }
     
-    // Atualizar status visual do salvamento automático
-    updateAutoSaveStatus();
+    // Formulário de visibilidade de contas a receber
+    const receivablesVisibilityForm = document.getElementById('receivables-visibility-form');
+    if (receivablesVisibilityForm) {
+        receivablesVisibilityForm.addEventListener('submit', (e) => {
+            e.preventDefault();
+            saveReceivablesVisibilitySettings();
+        });
+    }
+    
+    // Formulário de parcelamento
+    const installmentForm = document.getElementById('installment-form');
+    if (installmentForm) {
+        installmentForm.addEventListener('submit', handleInstallmentSubmit);
+    }
+    
+    // Fechar modal de parcelamento ao clicar fora
+    const installmentModal = document.getElementById('installment-modal');
+    if (installmentModal) {
+        installmentModal.addEventListener('click', (e) => {
+            if (e.target.id === 'installment-modal') {
+                closeInstallmentModal();
+            }
+        });
+    }
 }
 
 // Verificar se usuário é administrador
@@ -1067,7 +1273,8 @@ function hasAccessToSection(sectionId) {
     
     // Funcionários têm acesso limitado
     if (isFuncionario()) {
-        const allowedSections = ['home', 'greetings', 'all-clients', 'support'];
+        const allowedSections = ['home', 'greetings', 'all-clients', 'support', 'inventory'];
+        return allowedSections.includes(sectionId);
         return allowedSections.includes(sectionId);
     }
     
@@ -1084,9 +1291,9 @@ function showSection(sectionId) {
         sectionId = 'home';
     }
     
-    // Verificar permissões de acesso baseado no nível do usuário
-    if (currentUser && !hasAccessToSection(sectionId)) {
-        alert('⚠️ Acesso negado! Você não tem permissão para acessar esta funcionalidade. Apenas administradores podem acessar este menu.');
+    // Verificar permissões usando o sistema de permissões do usuário
+    if (currentUser && !hasUserPermission(sectionId)) {
+        alert('⚠️ Acesso negado! Você não tem permissão para acessar esta funcionalidade.');
         return;
     }
     
@@ -1111,21 +1318,23 @@ function showSection(sectionId) {
     }
     
     // Recarregar listas quando mudar de seção
-    if (sectionId === 'backup') {
-        updateAutoSaveStatus(); // Atualizar status visual do salvamento automático
-    }
-    
     if (sectionId === 'all-clients') {
         showClientsListView(); // Sempre mostrar lista ao entrar na seção
         loadAllClients();
+        updateStats(); // Atualizar card de clientes cadastrados
+        setupCardEventListeners(); // Reconfigurar event listeners
     } else if (sectionId === 'greetings') {
         loadClients();
+        updateStats(); // Atualizar card de aniversários e painel
+        setupCardEventListeners(); // Reconfigurar event listeners
     } else if (sectionId === 'license-status') {
         updateLicenseStatus();
     } else if (sectionId === 'license') {
         updateLicenseExpirationMessage();
     } else if (sectionId === 'home') {
         updateLicenseExpirationMessage();
+        loadCriticalStockAlert(); // Carregar alerta de estoque crítico
+        loadReceivablesExpirationAlert(); // Carregar alerta de vencimento de contas a receber
     } else if (sectionId === 'support') {
         updateSupportImage();
     } else if (sectionId === 'users') {
@@ -1139,23 +1348,51 @@ function showSection(sectionId) {
         loadUsersForLogFilter();
     } else if (sectionId === 'more-options') {
         updateMoreOptionsVisibility();
+    } else if (sectionId === 'backup') {
+        // Configurar o toggle switch se ainda não estiver configurado
+        const autoSaveToggle = document.getElementById('auto-save-toggle');
+        if (autoSaveToggle && !autoSaveToggle.hasAttribute('data-listener-setup')) {
+            autoSaveToggle.setAttribute('data-listener-setup', 'true');
+            autoSaveToggle.addEventListener('change', toggleAutoSave);
+        }
+        updateAutoSaveStatus(); // Atualizar status do auto-save quando abrir a seção
     } else if (sectionId === 'birthday-card-settings') {
         loadBirthdayCardSettingsIntoForm();
     } else if (sectionId === 'button-settings') {
         loadButtonSettingsForm();
+    } else if (sectionId === 'inactivity-timeout') {
+        loadInactivityTimeoutSettings();
     } else if (sectionId === 'company') {
         loadCompanyData();
         updateCompanyHeader();
+    } else if (sectionId === 'inventory') {
+        showInventoryView('products');
+        loadProducts();
+        updateInventoryProductsCount(); // Atualizar contador no botão
+        updateInventorySuppliersCount(); // Atualizar contador no botão
+        updateInventoryClientsCount(); // Atualizar contador no botão
+    } else if (sectionId === 'sales') {
+        initializeSalesScreen();
+        // Maximizar tela ao abrir vendas
+        maximizeSalesScreen();
+        // Garantir foco no campo Código Barras
+        setTimeout(() => {
+            const barcodeField = document.getElementById('sale-barcode');
+            if (barcodeField) {
+                barcodeField.focus();
+                barcodeField.select();
+            }
+        }, 200);
     }
     
     // Atualizar visibilidade dos menus de "Mais Opções" sempre que mudar de seção
     updateMoreOptionsVisibility();
 }
 
-// Atualizar visibilidade dos cards de "Mais Opções" baseado no nível de acesso
+// Atualizar visibilidade dos cards de "Mais Opções" baseado nas permissões do usuário
 function updateMoreOptionsVisibility() {
     const moreOptionsGrid = document.querySelector('.more-options-grid');
-    if (!moreOptionsGrid) return;
+    if (!moreOptionsGrid || !currentUser) return;
     
     const optionCards = moreOptionsGrid.querySelectorAll('.option-card');
     optionCards.forEach(card => {
@@ -1168,18 +1405,94 @@ function updateMoreOptionsVisibility() {
         
         const sectionId = match[1];
         
-        // Se for funcionário, esconder todos os cards exceto "Suporte"
-        if (isFuncionario()) {
-            if (sectionId === 'support') {
-                card.style.display = 'block';
-            } else {
-                card.style.display = 'none';
-            }
-        } else {
-            // Administradores veem todos os cards
+        // Verificar permissão usando hasUserPermission
+        if (hasUserPermission(sectionId)) {
             card.style.display = 'block';
+        } else {
+            card.style.display = 'none';
         }
     });
+}
+
+// Atualizar visibilidade dos botões do menu de Controle de Estoque baseado nas permissões
+function updateInventoryMenuVisibility() {
+    const inventoryMenu = document.querySelector('.inventory-menu');
+    if (!inventoryMenu || !currentUser) return;
+    
+    const inventoryButtons = inventoryMenu.querySelectorAll('.inventory-option-btn');
+    inventoryButtons.forEach(button => {
+        const onclickAttr = button.getAttribute('onclick');
+        if (!onclickAttr) return;
+        
+        // Extrair o viewId do onclick
+        const match = onclickAttr.match(/showInventoryView\('([^']+)'\)/);
+        if (!match) return;
+        
+        const viewId = match[1];
+        
+        // Mapear viewId para sectionId para verificar permissão
+        const viewToSectionMap = {
+            'clients': 'clients',
+            'products': 'products',
+            'brands': 'brands',
+            'categories': 'categories',
+            'suppliers': 'suppliers',
+            'entries': 'entries',
+            'exits': 'exits',
+            'receivables': 'receivables',
+            'reports': 'reports',
+            'settings': 'inventory-settings'
+        };
+        
+        const sectionId = viewToSectionMap[viewId];
+        if (sectionId === 'receivables') {
+            // Para Contas a Receber, verificar permissão de visualizar
+            if (!hasReceivablesPermission('visualizar')) {
+                button.style.display = 'none';
+            } else {
+                button.style.display = 'block';
+            }
+        } else if (sectionId && !hasUserPermission(sectionId)) {
+            button.style.display = 'none';
+        } else {
+            button.style.display = 'block';
+        }
+    });
+}
+
+// Atualizar visibilidade dos botões de navegação baseado nas permissões
+function updateNavigationVisibility() {
+    if (!currentUser) return;
+    
+    // Botão Vender
+    const salesBtn = document.querySelector('.nav-btn[data-section="sales"]');
+    if (salesBtn) {
+        if (hasUserPermission('sales')) {
+            salesBtn.style.display = 'block';
+        } else {
+            salesBtn.style.display = 'none';
+        }
+    }
+    
+    // Botão Controle de Estoque
+    const inventoryBtn = document.querySelector('.nav-btn[data-section="inventory"]');
+    if (inventoryBtn) {
+        if (hasUserPermission('inventory')) {
+            inventoryBtn.style.display = 'block';
+        } else {
+            inventoryBtn.style.display = 'none';
+        }
+    }
+    
+    // Botão Mais Opções
+    const moreOptionsBtn = document.querySelector('.nav-btn[data-section="more-options"]');
+    if (moreOptionsBtn) {
+        if (hasUserPermission('more-options')) {
+            moreOptionsBtn.style.display = 'block';
+        } else {
+            moreOptionsBtn.style.display = 'none';
+        }
+    }
 }
 
 // Controlar visibilidade dos menus de navegação e botões de sessão
@@ -1341,9 +1654,6 @@ function saveClientFinal(client) {
     loadAllClients();
     loadClients();
     updateStats();
-    
-    // Salvamento automático
-    performAutoSave();
     
     // Limpar formulário
     document.getElementById('client-form').reset();
@@ -1543,7 +1853,7 @@ function loadAllClients() {
         const cardClass = getCardBirthdayClass(client);
         
         return `
-            <div class="client-card ${cardClass}">
+            <div class="client-card ${cardClass}" onclick="editClientFromCard('${client.id}')" style="cursor: pointer;">
                 <div class="client-card-header">
                     ${photoHtml}
                     <h3>${client.name}</h3>
@@ -1551,11 +1861,9 @@ function loadAllClients() {
                 ${client.cpf ? `<div class="client-info"><strong>CPF:</strong> ${client.cpf}</div>` : ''}
                 <div class="client-info"><strong>Data de Nascimento:</strong> ${formatDate(client.birthdate)}</div>
                 ${getBirthdayDaysIndicator(client)}
-                <div class="client-actions">
-                    ${isAdmin() ? `
-                        <button class="btn btn-edit" onclick="openEditModal('${client.id}')">Editar</button>
-                        <button class="btn btn-delete" onclick="deleteClient('${client.id}')">Excluir</button>
-                    ` : ''}
+                <div class="client-actions" onclick="event.stopPropagation()">
+                    <button class="btn btn-edit" onclick="editClientFromCard('${client.id}')">✏️ Editar</button>
+                    <button class="btn btn-delete" onclick="deleteClientFromCard('${client.id}')">🗑️ Excluir</button>
                 </div>
             </div>
         `;
@@ -1672,14 +1980,12 @@ function updateClientFinal(clientIndex, name, cpf, birthdate, phones, emails, ph
     };
     
     saveClients();
+    autoSave(); // Salvamento automático
     addSystemLog('edit_client', `Cliente "${name}" foi editado`, currentUser ? currentUser.username : 'Sistema');
     loadClients();
     loadAllClients();
     updateStats();
     closeEditModal();
-    
-    // Salvamento automático
-    performAutoSave();
     
     alert('Cliente atualizado com sucesso!');
 }
@@ -1704,11 +2010,10 @@ function deleteClient(clientId) {
         }
         loadClients(); // Recarregar lista de felicitações
         loadAllClients(); // Recarregar lista de todos os clientes
+        loadInventoryClients(); // Recarregar lista do inventário
+        updateInventoryClientsCount(); // Atualizar contador no botão
+        autoSave(); // Salvamento automático
         updateStats();
-        
-        // Salvamento automático
-        performAutoSave();
-        
         alert('Cliente excluído com sucesso!');
     }
 }
@@ -1729,10 +2034,57 @@ function loadCompanyData() {
     document.getElementById('company-description').value = companyData.description || '';
     
     if (companyData.logo) {
-        document.getElementById('company-logo').src = companyData.logo;
-        document.getElementById('company-logo').style.display = 'block';
-        document.getElementById('logo-preview').src = companyData.logo;
-        document.getElementById('logo-preview').style.display = 'block';
+        // Detectar tipo automaticamente se não estiver definido (para compatibilidade com dados antigos)
+        let logoType = companyData.logoType;
+        if (!logoType) {
+            // Se começar com data:video, é vídeo; se começar com data:image, é imagem
+            if (companyData.logo.startsWith('data:video/')) {
+                logoType = 'video';
+                companyData.logoType = 'video';
+            } else {
+                logoType = 'image';
+                companyData.logoType = 'image';
+            }
+        }
+        
+        const logoImg = document.getElementById('company-logo');
+        const logoVideo = document.getElementById('company-logo-video');
+        const previewImg = document.getElementById('logo-preview');
+        const previewVideo = document.getElementById('logo-preview-video');
+        
+        if (logoType === 'video') {
+            // Mostrar vídeo
+            if (logoVideo) {
+                logoVideo.src = companyData.logo;
+                logoVideo.style.display = 'block';
+            }
+            if (logoImg) {
+                logoImg.style.display = 'none';
+            }
+            if (previewVideo) {
+                previewVideo.src = companyData.logo;
+                previewVideo.style.display = 'block';
+            }
+            if (previewImg) {
+                previewImg.style.display = 'none';
+            }
+        } else {
+            // Mostrar imagem
+            if (logoImg) {
+                logoImg.src = companyData.logo;
+                logoImg.style.display = 'block';
+            }
+            if (logoVideo) {
+                logoVideo.style.display = 'none';
+            }
+            if (previewImg) {
+                previewImg.src = companyData.logo;
+                previewImg.style.display = 'block';
+            }
+            if (previewVideo) {
+                previewVideo.style.display = 'none';
+            }
+        }
     }
     
     // Carregar imagem de suporte (imagem fixa do projeto)
@@ -1790,10 +2142,48 @@ function loadCompanyData() {
 // Atualizar header da empresa
 function updateCompanyHeader() {
     document.getElementById('company-name').textContent = companyData.name || 'Nome da Empresa';
-    const logoEl = document.getElementById('company-logo');
-    if (logoEl && companyData.logo) {
-        logoEl.src = companyData.logo;
-        logoEl.style.display = 'block';
+    
+    if (companyData.logo) {
+        // Detectar tipo automaticamente se não estiver definido
+        let logoType = companyData.logoType;
+        if (!logoType) {
+            if (companyData.logo.startsWith('data:video/')) {
+                logoType = 'video';
+                companyData.logoType = 'video';
+            } else {
+                logoType = 'image';
+                companyData.logoType = 'image';
+            }
+        }
+        
+        const logoImg = document.getElementById('company-logo');
+        const logoVideo = document.getElementById('company-logo-video');
+        
+        if (logoType === 'video') {
+            // Mostrar vídeo
+            if (logoVideo) {
+                logoVideo.src = companyData.logo;
+                logoVideo.style.display = 'block';
+            }
+            if (logoImg) {
+                logoImg.style.display = 'none';
+            }
+        } else {
+            // Mostrar imagem
+            if (logoImg) {
+                logoImg.src = companyData.logo;
+                logoImg.style.display = 'block';
+            }
+            if (logoVideo) {
+                logoVideo.style.display = 'none';
+            }
+        }
+    } else {
+        // Esconder ambos se não houver logo
+        const logoImg = document.getElementById('company-logo');
+        const logoVideo = document.getElementById('company-logo-video');
+        if (logoImg) logoImg.style.display = 'none';
+        if (logoVideo) logoVideo.style.display = 'none';
     }
 
     // Aplicar imagem de fundo do cabeçalho da empresa, se existir
@@ -1889,18 +2279,116 @@ function handleLogoUpload(e) {
     const file = e.target.files[0];
     if (!file) return;
     
-    // Abrir modal de cropping com aspect ratio 1:1 (quadrado) para logo
-    openCropModal(file, 'logo', 1, (croppedImageData) => {
-        companyData.logo = croppedImageData;
-        document.getElementById('company-logo').src = croppedImageData;
-        document.getElementById('company-logo').style.display = 'block';
-        document.getElementById('logo-preview').src = croppedImageData;
-        document.getElementById('logo-preview').style.display = 'block';
-        document.getElementById('remove-logo-btn').style.display = 'inline-block';
-        saveCompanyData();
-        updateCompanyHeader();
-        alert('Logo atualizado com sucesso!');
-    });
+    // Verificar se é vídeo ou imagem
+    const isVideo = file.type.startsWith('video/');
+    const isImage = file.type.startsWith('image/');
+    
+    // Validar formato
+    if (!isVideo && !isImage) {
+        alert('Formato inválido. Selecione uma imagem (JPG, PNG) ou vídeo (WEBM, MP4).');
+        e.target.value = '';
+        return;
+    }
+    
+    // Validar tipos específicos
+    if (isVideo) {
+        if (file.type !== 'video/webm' && file.type !== 'video/mp4') {
+            alert('Formato de vídeo inválido. Selecione WEBM ou MP4.');
+            e.target.value = '';
+            return;
+        }
+    } else if (isImage) {
+        if (file.type !== 'image/jpeg' && file.type !== 'image/jpg' && file.type !== 'image/png') {
+            alert('Formato de imagem inválido. Selecione JPG ou PNG.');
+            e.target.value = '';
+            return;
+        }
+    }
+    
+    // Validar tamanho (10MB para vídeos, 5MB para imagens)
+    const maxSize = isVideo ? 10 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxSize) {
+        alert(`Arquivo muito grande. Tamanho máximo: ${isVideo ? '10MB' : '5MB'}.`);
+        e.target.value = '';
+        return;
+    }
+    
+    if (isVideo) {
+        // Para vídeo, converter para base64 sem cropping
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const videoData = event.target.result;
+            companyData.logo = videoData;
+            companyData.logoType = 'video'; // Marcar como vídeo
+            
+            // Esconder imagem e mostrar vídeo
+            const logoImg = document.getElementById('company-logo');
+            const logoVideo = document.getElementById('company-logo-video');
+            const previewImg = document.getElementById('logo-preview');
+            const previewVideo = document.getElementById('logo-preview-video');
+            
+            if (logoImg) {
+                logoImg.style.display = 'none';
+                logoImg.src = '';
+            }
+            if (logoVideo) {
+                logoVideo.src = videoData;
+                logoVideo.style.display = 'block';
+            }
+            if (previewImg) {
+                previewImg.style.display = 'none';
+                previewImg.src = '';
+            }
+            if (previewVideo) {
+                previewVideo.src = videoData;
+                previewVideo.style.display = 'block';
+            }
+            
+            document.getElementById('remove-logo-btn').style.display = 'inline-block';
+            saveCompanyData();
+            updateCompanyHeader();
+            alert('Vídeo atualizado com sucesso!');
+        };
+        reader.onerror = function() {
+            alert('Erro ao carregar o vídeo. Por favor, tente novamente.');
+            e.target.value = '';
+        };
+        reader.readAsDataURL(file);
+    } else {
+        // Para imagem, usar cropping como antes
+        openCropModal(file, 'logo', 1, (croppedImageData) => {
+            companyData.logo = croppedImageData;
+            companyData.logoType = 'image'; // Marcar como imagem
+            
+            // Esconder vídeo e mostrar imagem
+            const logoImg = document.getElementById('company-logo');
+            const logoVideo = document.getElementById('company-logo-video');
+            const previewImg = document.getElementById('logo-preview');
+            const previewVideo = document.getElementById('logo-preview-video');
+            
+            if (logoVideo) {
+                logoVideo.style.display = 'none';
+                logoVideo.src = '';
+            }
+            if (logoImg) {
+                logoImg.src = croppedImageData;
+                logoImg.style.display = 'block';
+            }
+            if (previewVideo) {
+                previewVideo.style.display = 'none';
+                previewVideo.src = '';
+            }
+            if (previewImg) {
+                previewImg.src = croppedImageData;
+                previewImg.style.display = 'block';
+            }
+            
+            document.getElementById('remove-logo-btn').style.display = 'inline-block';
+            saveCompanyData();
+            updateCompanyHeader();
+            alert('Logo atualizado com sucesso!');
+        });
+    }
 }
 
 // Variáveis globais para cropping
@@ -1934,7 +2422,9 @@ function openCropModal(file, cropType, aspectRatio, callback) {
             'header-bg': 'Ajustar Fundo do Cabeçalho',
             'client-photo': 'Ajustar Foto do Cliente',
             'user-photo': 'Ajustar Foto do Usuário',
-            'theme-bg': 'Ajustar Fundo do Tema'
+            'theme-bg': 'Ajustar Fundo do Tema',
+            'product-photo': 'Ajustar Imagem do Produto',
+            'supplier-logo': 'Ajustar Logo do Fornecedor'
         };
         cropTitle.textContent = titles[cropType] || 'Ajustar Imagem';
         
@@ -2000,8 +2490,8 @@ function confirmCrop() {
     }
     
     const canvas = currentCropper.getCroppedCanvas({
-        width: currentCropType === 'logo' ? 400 : (currentCropType === 'header-bg' ? 1200 : 800),
-        height: currentCropType === 'logo' ? 400 : (currentCropType === 'header-bg' ? 300 : 600),
+        width: currentCropType === 'logo' || currentCropType === 'supplier-logo' ? 400 : (currentCropType === 'header-bg' ? 1200 : (currentCropType === 'product-photo' ? 400 : 800)),
+        height: currentCropType === 'logo' || currentCropType === 'supplier-logo' ? 400 : (currentCropType === 'header-bg' ? 300 : (currentCropType === 'product-photo' ? 400 : 600)),
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high'
     });
@@ -2026,10 +2516,22 @@ function confirmCrop() {
 function removeCompanyLogo() {
     if (confirm('Tem certeza que deseja remover o logo da empresa?')) {
         companyData.logo = '';
+        companyData.logoType = '';
         saveCompanyData();
         updateCompanyHeader();
-        document.getElementById('logo-preview').style.display = 'none';
-        document.getElementById('logo-preview').src = '';
+        
+        // Limpar previews
+        const previewImg = document.getElementById('logo-preview');
+        const previewVideo = document.getElementById('logo-preview-video');
+        if (previewImg) {
+            previewImg.style.display = 'none';
+            previewImg.src = '';
+        }
+        if (previewVideo) {
+            previewVideo.style.display = 'none';
+            previewVideo.src = '';
+        }
+        
         document.getElementById('remove-logo-btn').style.display = 'none';
         document.getElementById('company-logo-input').value = '';
         alert('Logo removido com sucesso!');
@@ -2162,16 +2664,13 @@ function handleCompanySubmit(e) {
     
     saveCompanyData();
     updateCompanyHeader();
-    
-    // Salvamento automático
-    performAutoSave();
-    
     alert('Dados da empresa salvos com sucesso!');
 }
 
 // Salvar dados da empresa
 function saveCompanyData() {
     localStorage.setItem('companyData', JSON.stringify(companyData));
+    autoSave(); // Salvamento automático
 }
 
 // Upload de imagem de fundo do cabeçalho da empresa
@@ -2806,10 +3305,154 @@ function handleEditClientPhotoUpload(e) {
 }
 
 
-// Backup dos dados
+// Salvamento Automático (Auto Save)
+function autoSave() {
+    // Verificar se o auto-save está habilitado
+    if (!autoSaveEnabled) {
+        return; // Não executar se estiver desativado
+    }
+    
+    try {
+        const backupData = {
+            clients,
+            products,
+            suppliers,
+            companyData,
+            sentGreetings,
+            licenseData,
+            licenseActivations,
+            used3DayKey,
+            usedAnnualKeys,
+            userThemeSettings,
+            backupDate: new Date().toISOString(),
+            autoSave: true // Identificador de que é um auto-save
+        };
+        
+        const dataStr = JSON.stringify(backupData, null, 2);
+        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+        const url = URL.createObjectURL(dataBlob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'salvamento_automatico.json'; // Nome fixo - sempre sobrescreve
+        link.style.display = 'none';
+        document.body.appendChild(link);
+        
+        // Usar setTimeout para garantir que o download seja iniciado
+        setTimeout(() => {
+            link.click();
+            setTimeout(() => {
+                document.body.removeChild(link);
+                URL.revokeObjectURL(url);
+            }, 100);
+        }, 10);
+        
+        // Salvar também no localStorage para referência
+        localStorage.setItem('lastAutoSave', new Date().toISOString());
+        
+        // Log silencioso (sem alert) - apenas no console
+        if (currentUser) {
+            addSystemLog('auto_save', 'Salvamento automático realizado', currentUser.username);
+        }
+    } catch (error) {
+        console.error('Erro ao realizar salvamento automático:', error);
+    }
+}
+
+// Alternar estado do Salvamento Automático
+function toggleAutoSave() {
+    // Verificar se o usuário é administrador
+    if (!isAdmin()) {
+        alert('⚠️ Acesso restrito! Apenas administradores podem alterar o salvamento automático.');
+        // Restaurar estado anterior do toggle
+        const toggleCheckbox = document.getElementById('auto-save-toggle');
+        if (toggleCheckbox) {
+            toggleCheckbox.checked = autoSaveEnabled;
+        }
+        return;
+    }
+    
+    autoSaveEnabled = !autoSaveEnabled;
+    localStorage.setItem('autoSaveEnabled', JSON.stringify(autoSaveEnabled));
+    updateAutoSaveStatus();
+    
+    // Log da ação
+    if (currentUser) {
+        const action = autoSaveEnabled ? 'ativado' : 'desativado';
+        addSystemLog('auto_save_toggle', `Salvamento automático ${action}`, currentUser.username);
+    }
+    
+    // Mostrar feedback visual
+    const statusText = autoSaveEnabled ? '✅ Salvamento automático ATIVADO' : '❌ Salvamento automático DESATIVADO';
+    alert(statusText);
+}
+
+// Atualizar interface do status do Salvamento Automático
+function updateAutoSaveStatus() {
+    const toggleCheckbox = document.getElementById('auto-save-toggle');
+    const labelElement = document.getElementById('auto-save-label');
+    const toggleSwitch = toggleCheckbox ? toggleCheckbox.closest('.toggle-switch') : null;
+    
+    if (!toggleCheckbox || !labelElement) {
+        return; // Elementos ainda não carregados
+    }
+    
+    // Verificar se o usuário é administrador
+    const isUserAdmin = isAdmin();
+    
+    // Atualizar o estado do checkbox
+    toggleCheckbox.checked = autoSaveEnabled;
+    
+    // Desabilitar toggle se não for administrador
+    toggleCheckbox.disabled = !isUserAdmin;
+    
+    // Adicionar classe CSS para indicar estado desabilitado
+    if (toggleSwitch) {
+        if (isUserAdmin) {
+            toggleSwitch.classList.remove('toggle-disabled');
+            toggleSwitch.style.opacity = '1';
+            toggleSwitch.style.cursor = 'pointer';
+        } else {
+            toggleSwitch.classList.add('toggle-disabled');
+            toggleSwitch.style.opacity = '0.6';
+            toggleSwitch.style.cursor = 'not-allowed';
+        }
+    }
+    
+    // Atualizar o texto do label
+    if (autoSaveEnabled) {
+        labelElement.textContent = 'Salvamento Automático: Ativo';
+        labelElement.classList.remove('inactive');
+    } else {
+        labelElement.textContent = 'Salvamento Automático: Inativo';
+        labelElement.classList.add('inactive');
+    }
+    
+    // Adicionar mensagem informativa se não for admin
+    const description = document.querySelector('.auto-save-description');
+    if (description) {
+        if (!isUserAdmin) {
+            // Verificar se a mensagem já foi adicionada
+            const hasRestrictionMessage = description.querySelector('small');
+            if (!hasRestrictionMessage) {
+                const baseText = 'Quando ativado, o sistema salvará automaticamente os dados em "salvamento_automatico.json" após cada alteração.';
+                description.innerHTML = baseText + '<br><small style="color: #999; font-style: italic; display: block; margin-top: 8px;">⚠️ Apenas administradores podem alterar esta configuração.</small>';
+            }
+        } else {
+            // Remover mensagem de restrição se for admin
+            const restrictionMessage = description.querySelector('small');
+            if (restrictionMessage) {
+                description.textContent = 'Quando ativado, o sistema salvará automaticamente os dados em "salvamento_automatico.json" após cada alteração.';
+            }
+        }
+    }
+}
+
+// Backup dos dados (Manual - mantido inalterado)
 function downloadBackup() {
     const backupData = {
         clients,
+        products,
+        suppliers,
         companyData,
         sentGreetings,
         licenseData,
@@ -2830,59 +3473,6 @@ function downloadBackup() {
     URL.revokeObjectURL(url);
     addSystemLog('backup', 'Backup dos dados realizado', currentUser ? currentUser.username : 'Sistema');
     alert('Backup realizado com sucesso!');
-}
-
-// Salvamento Automático
-function performAutoSave() {
-    // Só executar se o salvamento automático estiver ativo
-    if (!autoSaveEnabled) {
-        return;
-    }
-    
-    const backupData = {
-        clients,
-        companyData,
-        sentGreetings,
-        licenseData,
-        licenseActivations,
-        used3DayKey,
-        usedAnnualKeys,
-        userThemeSettings,
-        backupDate: new Date().toISOString()
-    };
-    
-    const dataStr = JSON.stringify(backupData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = 'salvamento automatico.json'; // Nome fixo
-    link.click();
-    URL.revokeObjectURL(url);
-    
-    // Log silencioso (sem alert)
-    addSystemLog('auto_save', 'Salvamento automático realizado', currentUser ? currentUser.username : 'Sistema');
-}
-
-// Atualizar status visual do salvamento automático
-function updateAutoSaveStatus() {
-    const statusElement = document.getElementById('auto-save-status');
-    const toggleElement = document.getElementById('auto-save-toggle');
-    
-    if (statusElement) {
-        statusElement.textContent = autoSaveEnabled ? 'Salvamento Automático: Ativo' : 'Salvamento Automático: Inativo';
-    }
-    
-    if (toggleElement) {
-        toggleElement.checked = autoSaveEnabled;
-    }
-}
-
-// Toggle do salvamento automático
-function toggleAutoSave() {
-    autoSaveEnabled = !autoSaveEnabled;
-    localStorage.setItem('autoSaveEnabled', JSON.stringify(autoSaveEnabled));
-    updateAutoSaveStatus();
 }
 
 // Restaurar backup
@@ -3129,6 +3719,7 @@ function handleLicenseSubmit(e) {
         }
         
         localStorage.setItem('licenseData', JSON.stringify(licenseData));
+        autoSave(); // Salvamento automático após ativar licença
         
         // Formatar datas para exibição
         const activatedDateFormatted = formatDate(licenseData.activatedDate.split('T')[0]);
@@ -3435,31 +4026,57 @@ function loadUsers() {
         
         const loggedIsCoutinho = currentUser && currentUser.username && currentUser.username.toLowerCase() === 'coutinho';
         const loggedIsAdmin = currentUser && currentUser.username && currentUser.username.toLowerCase() === 'admin';
+        const loggedIsAdminButNotCoutinho = currentUser && currentUser.accessLevel === 'admin' && !loggedIsCoutinho;
         
         // Funcionários não podem editar ou excluir usuários
         let editBtn = '';
         let deleteBtn = '';
+        let permissionsBtn = '';
         
-        if (isProtectedUser) {
-            // Usuários protegidos (Coutinho e admin) não podem ser excluídos
+        if (isCoutinhoUser) {
+            // Coutinho (super admin) - não pode ter permissões editadas (sempre tem acesso total)
+            // Não mostrar botão de permissões para ele mesmo
             deleteBtn = '';
             
             // Edição só permitida para o próprio usuário
-            if (isCoutinhoUser) {
-                editBtn = loggedIsCoutinho ? 
-                    `<button class="btn btn-edit" onclick="openEditUserModal('${user.id}')">✏️ Editar</button>` :
-                    '<button class="btn btn-edit" onclick="alert(\'Somente o usuário Coutinho pode editar seus próprios dados.\')" title="Restrito">✏️ Editar</button>';
-            } else if (isAdminUser) {
-                editBtn = loggedIsAdmin ? 
-                    `<button class="btn btn-edit" onclick="openEditUserModal('${user.id}')">✏️ Editar</button>` :
-                    '<button class="btn btn-edit" onclick="alert(\'Somente o usuário admin pode editar seus próprios dados.\')" title="Restrito">✏️ Editar</button>';
-            } else {
-                editBtn = '<button class="btn btn-edit" onclick="alert(\'Este usuário não pode ser editado.\')" title="Usuário protegido">✏️ Editar</button>';
+            editBtn = loggedIsCoutinho ? 
+                `<button class="btn btn-edit" onclick="openEditUserModal('${user.id}')">✏️ Editar</button>` :
+                '<button class="btn btn-edit" onclick="alert(\'Somente o usuário Coutinho pode editar seus próprios dados.\')" title="Restrito">✏️ Editar</button>';
+            
+            // Coutinho pode gerenciar permissões de todos, mas não de si mesmo
+            // (não mostrar botão de permissões para ele mesmo)
+        } else if (isAdminUser) {
+            // Admin (outro administrador)
+            deleteBtn = '';
+            
+            // Edição só permitida para o próprio usuário
+            editBtn = loggedIsAdmin ? 
+                `<button class="btn btn-edit" onclick="openEditUserModal('${user.id}')">✏️ Editar</button>` :
+                '<button class="btn btn-edit" onclick="alert(\'Somente o usuário admin pode editar seus próprios dados.\')" title="Restrito">✏️ Editar</button>';
+            
+            // Apenas Coutinho pode editar permissões de outros administradores
+            if (loggedIsCoutinho) {
+                permissionsBtn = `<button class="btn btn-info" onclick="openUserPermissionsModal('${user.id}')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">🔐 Permissões</button>`;
+            }
+        } else if (isProtectedUser) {
+            // Outros usuários protegidos
+            deleteBtn = '';
+            editBtn = '<button class="btn btn-edit" onclick="alert(\'Este usuário não pode ser editado.\')" title="Usuário protegido">✏️ Editar</button>';
+            
+            // Apenas Coutinho pode editar permissões de usuários protegidos
+            if (loggedIsCoutinho) {
+                permissionsBtn = `<button class="btn btn-info" onclick="openUserPermissionsModal('${user.id}')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">🔐 Permissões</button>`;
             }
         } else if (isAdmin()) {
-            // Administradores podem editar e excluir outros usuários (não protegidos)
+            // Administradores podem editar, excluir e gerenciar permissões de funcionários
             editBtn = `<button class="btn btn-edit" onclick="openEditUserModal('${user.id}')">✏️ Editar</button>`;
             deleteBtn = `<button class="btn btn-delete" onclick="deleteUser('${user.id}')">🗑️ Excluir</button>`;
+            
+            // Administradores podem gerenciar permissões de funcionários
+            // Coutinho pode gerenciar permissões de todos
+            if (loggedIsCoutinho || (loggedIsAdminButNotCoutinho && user.accessLevel !== 'admin')) {
+                permissionsBtn = `<button class="btn btn-info" onclick="openUserPermissionsModal('${user.id}')" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);">🔐 Permissões</button>`;
+            }
         }
         
         userCard.innerHTML = `
@@ -3475,6 +4092,7 @@ function loadUsers() {
             </div>
             <div class="client-card-actions">
                 ${editBtn}
+                ${permissionsBtn}
                 ${deleteBtn}
             </div>
         `;
@@ -3629,10 +4247,6 @@ function saveUserWithPhoto(name, username, password, birthdate, phone, email, ac
         users.push(newUser);
         saveUsers();
         addSystemLog('create_user', `Usuário "${name}" foi criado`, currentUser ? currentUser.username : 'Sistema');
-        
-        // Salvamento automático
-        performAutoSave();
-        
         alert('Usuário cadastrado com sucesso!');
         showUsersListView();
     }
@@ -3784,10 +4398,6 @@ function updateUserWithPhoto(userId, name, username, password, birthdate, phone,
     
     saveUsers();
     addSystemLog('edit_user', `Usuário "${name}" foi editado`, currentUser ? currentUser.username : 'Sistema');
-    
-    // Salvamento automático
-    performAutoSave();
-    
     alert('Usuário atualizado com sucesso!');
     closeEditUserModal();
     loadUsers();
@@ -3824,10 +4434,6 @@ function deleteUser(userId) {
         users = users.filter(u => u.id !== userId);
         saveUsers();
         addSystemLog('delete_user', `Usuário "${user.name}" foi excluído`, currentUser ? currentUser.username : 'Sistema');
-        
-        // Salvamento automático
-        performAutoSave();
-        
         alert('Usuário excluído com sucesso!');
         loadUsers();
     }
@@ -3913,6 +4519,10 @@ function checkLoginStatus() {
             if (!sessionTimeoutId) {
                 startSessionTimeout();
             }
+            // Carregar alerta de estoque crítico se estiver na tela inicial
+            if (document.getElementById('home') && document.getElementById('home').classList.contains('active')) {
+                loadCriticalStockAlert();
+            }
         } else {
             loginScreen.style.display = 'block';
             homeContent.style.display = 'none';
@@ -3930,6 +4540,8 @@ function checkLoginStatus() {
     
     // Atualizar visibilidade dos menus de "Mais Opções" e botões
     updateMoreOptionsVisibility();
+    updateInventoryMenuVisibility();
+    updateNavigationVisibility();
     updateClientButtonsVisibility();
     
     // Atualizar visibilidade dos menus de navegação
@@ -4034,6 +4646,8 @@ function handleLogin(e) {
         
         // Atualizar visibilidade dos menus
         updateMoreOptionsVisibility();
+        updateInventoryMenuVisibility();
+        updateNavigationVisibility();
         updateClientButtonsVisibility();
         
         // Atualizar visibilidade dos menus de navegação (mostrar após login bem-sucedido)
@@ -4058,8 +4672,8 @@ function handleLogin(e) {
 
 // Lógica central de logout (sem confirmação)
 function performLogout() {
-    // Salvamento automático antes de sair
-    performAutoSave();
+    // Realizar auto-save antes de sair
+    autoSave();
     
     // Aplicar tema padrão IMEDIATAMENTE ao fazer logout
     applyDefaultTheme();
@@ -4108,6 +4722,9 @@ function handleLogout() {
 
 // Trocar de usuário - Abre modal de seleção
 function switchUser() {
+    // Realizar auto-save antes de trocar usuário
+    autoSave();
+    
     // Primeiro, pedir confirmação
     const confirmMessage = 'Você tem certeza que deseja alterar o usuário conectado?';
     
@@ -4115,9 +4732,6 @@ function switchUser() {
         // Se o usuário cancelar, manter logado e não fazer nada
         return;
     }
-    
-    // Salvamento automático antes de trocar de usuário
-    performAutoSave();
     
     // Se confirmar, esconder menus IMEDIATAMENTE antes de abrir o modal
     // Criar um estado temporário para indicar que está em processo de troca
@@ -4721,6 +5335,740 @@ function saveLogSettings() {
     loadSystemLogs();
 }
 
+// ============================================
+// TEMPO DE INATIVIDADE NO SISTEMA
+// ============================================
+
+// Carregar configurações de tempo de inatividade
+function loadInactivityTimeoutSettings() {
+    const adminHours = document.getElementById('admin-timeout-hours');
+    const adminMinutes = document.getElementById('admin-timeout-minutes');
+    const funcionarioHours = document.getElementById('funcionario-timeout-hours');
+    const funcionarioMinutes = document.getElementById('funcionario-timeout-minutes');
+    
+    if (adminHours) adminHours.value = inactivityTimeoutSettings.admin?.hours || 0;
+    if (adminMinutes) adminMinutes.value = inactivityTimeoutSettings.admin?.minutes || 0;
+    if (funcionarioHours) funcionarioHours.value = inactivityTimeoutSettings.funcionario?.hours || 0;
+    if (funcionarioMinutes) funcionarioMinutes.value = inactivityTimeoutSettings.funcionario?.minutes || 0;
+}
+
+// Salvar configurações de tempo de inatividade
+function saveInactivityTimeout() {
+    const adminHours = parseInt(document.getElementById('admin-timeout-hours').value) || 0;
+    const adminMinutes = parseInt(document.getElementById('admin-timeout-minutes').value) || 0;
+    const funcionarioHours = parseInt(document.getElementById('funcionario-timeout-hours').value) || 0;
+    const funcionarioMinutes = parseInt(document.getElementById('funcionario-timeout-minutes').value) || 0;
+    
+    // Validar valores
+    if (adminHours < 0 || adminHours > 23 || adminMinutes < 0 || adminMinutes > 59) {
+        alert('Por favor, informe valores válidos para Administrador (horas: 0-23, minutos: 0-59).');
+        return;
+    }
+    
+    if (funcionarioHours < 0 || funcionarioHours > 23 || funcionarioMinutes < 0 || funcionarioMinutes > 59) {
+        alert('Por favor, informe valores válidos para Funcionário (horas: 0-23, minutos: 0-59).');
+        return;
+    }
+    
+    inactivityTimeoutSettings = {
+        admin: { hours: adminHours, minutes: adminMinutes },
+        funcionario: { hours: funcionarioHours, minutes: funcionarioMinutes }
+    };
+    
+    localStorage.setItem('inactivityTimeoutSettings', JSON.stringify(inactivityTimeoutSettings));
+    alert('Configurações de tempo de inatividade salvas com sucesso!');
+}
+
+// ============================================
+// PERMISSÕES DE USUÁRIOS
+// ============================================
+
+// Abrir modal de permissões
+function openUserPermissionsModal(userId) {
+    // Verificar se o usuário atual é administrador
+    if (!currentUser || currentUser.accessLevel !== 'admin') {
+        alert('⚠️ Apenas administradores podem editar permissões de usuários.');
+        return;
+    }
+    
+    const user = users.find(u => u.id === userId);
+    if (!user) {
+        alert('Usuário não encontrado.');
+        return;
+    }
+    
+    // Verificar se é Coutinho (super admin)
+    const isCoutinho = user.username && user.username.toLowerCase() === 'coutinho';
+    
+    // Verificar se é outro administrador (não Coutinho)
+    const isOtherAdmin = user.accessLevel === 'admin' && !isCoutinho;
+    const currentUserIsAdmin = currentUser && currentUser.accessLevel === 'admin';
+    const currentUserIsCoutinho = currentUser && currentUser.username && currentUser.username.toLowerCase() === 'coutinho';
+    
+    // Administradores não podem editar permissões de outros administradores (exceto Coutinho)
+    if (isOtherAdmin && currentUserIsAdmin && !currentUserIsCoutinho) {
+        alert('Você não pode editar permissões de outros administradores.');
+        return;
+    }
+    
+    editingPermissionsUserId = userId;
+    document.getElementById('user-permissions-name').textContent = `Usuário: ${user.name} (${user.username})`;
+    
+    // Carregar formas de pagamento para criar permissões dinâmicas
+    initializePaymentMethods();
+    
+    // Criar permissões padrão para formas de pagamento
+    const defaultFormaPagamentoPermissions = {
+        formaPagamento: true,
+        formaPagamento_alterar: true
+    };
+    
+    // Adicionar permissão padrão para cada forma de pagamento (ativa por padrão)
+    paymentMethods.forEach(method => {
+        defaultFormaPagamentoPermissions[`formaPagamento_${method.id}`] = method.active !== false;
+    });
+    
+    // Carregar permissões do usuário (ou usar padrão)
+    const permissions = userPermissions[userId] || {
+        vender: true,
+        vender_cancelarItemVenda: true,
+        vender_editarItem: true,
+        vender_aplicarDesconto: true,
+        vender_localizarVenda: true,
+        vender_outrasAcoes: true,
+        ...defaultFormaPagamentoPermissions,
+        controleEstoque: true,
+        controleEstoque_clientes: true,
+        controleEstoque_produtos: true,
+        controleEstoque_brands: true,
+        controleEstoque_categories: true,
+        controleEstoque_suppliers: true,
+        controleEstoque_entries: true,
+        controleEstoque_exits: true,
+        controleEstoque_receivables: true,
+        controleEstoque_receivables_visualizar: true,
+        controleEstoque_receivables_alterar: true,
+        controleEstoque_receivables_alterarVencimento: false,
+        controleEstoque_reports: true,
+        controleEstoque_settings: true,
+        maisOpcoes: true,
+        maisOpcoes_perfilEmpresa: true,
+        maisOpcoes_backup: true,
+        maisOpcoes_restore: true,
+        maisOpcoes_support: true,
+        maisOpcoes_license: true,
+        maisOpcoes_licenseStatus: true,
+        maisOpcoes_users: true,
+        maisOpcoes_systemLog: true,
+        maisOpcoes_settings: true,
+        maisOpcoes_birthdayCard: true,
+        maisOpcoes_buttonSettings: true,
+        maisOpcoes_inactivityTimeout: true
+    };
+    
+    // Criar lista de permissões
+    const permissionsList = document.getElementById('permissions-list');
+    permissionsList.innerHTML = '';
+    
+    const menuOptions = [
+        { key: 'vender', label: 'Vender', icon: '💰' },
+        { key: 'formaPagamento', label: 'Forma de Pagamento', icon: '💳' },
+        { key: 'controleEstoque', label: 'Controle de Estoque', icon: '📦' },
+        { key: 'maisOpcoes', label: 'Mais Opções', icon: '⚙️' }
+    ];
+    
+    // Sub-opções de Controle de Estoque
+    const controleEstoqueSubOptions = [
+        { key: 'controleEstoque_clientes', label: 'Clientes', icon: '👥' },
+        { key: 'controleEstoque_produtos', label: 'Produtos', icon: '📦' },
+        { key: 'controleEstoque_brands', label: 'Marca/Fabricante', icon: '🏷️' },
+        { key: 'controleEstoque_categories', label: 'Categorias', icon: '📁' },
+        { key: 'controleEstoque_suppliers', label: 'Fornecedor', icon: '🏢' },
+        { key: 'controleEstoque_entries', label: 'Entradas/Recebimentos', icon: '📥' },
+        { key: 'controleEstoque_exits', label: 'Saídas/Vendas', icon: '📤' },
+        { key: 'controleEstoque_receivables', label: 'Contas a Receber', icon: '💰' },
+        { key: 'controleEstoque_reports', label: 'Relatórios', icon: '📊' },
+        { key: 'controleEstoque_settings', label: 'Configurações', icon: '⚙️' }
+    ];
+    
+    // Sub-opções de Vender
+    const venderSubOptions = [
+        { key: 'vender_cancelarItemVenda', label: 'Cancelar Item/Venda', icon: '🗑️' },
+        { key: 'vender_editarItem', label: 'Editar Item', icon: '✏️' },
+        { key: 'vender_aplicarDesconto', label: 'Aplicar Desconto', icon: '💰' },
+        { key: 'vender_localizarVenda', label: 'Localizar Venda', icon: '🔍' },
+        { key: 'vender_outrasAcoes', label: 'Outras Ações', icon: '⚙️' }
+    ];
+    
+    // Carregar formas de pagamento e criar sub-opções dinâmicas
+    initializePaymentMethods();
+    const formaPagamentoSubOptions = [
+        { key: 'formaPagamento_alterar', label: 'Alterar Forma de Pagamento', icon: '💳' }
+    ];
+    
+    // Adicionar cada forma de pagamento como sub-opção
+    paymentMethods.forEach(method => {
+        const methodKey = `formaPagamento_${method.id}`;
+        formaPagamentoSubOptions.push({
+            key: methodKey,
+            label: method.name,
+            icon: '💳',
+            methodId: method.id
+        });
+    });
+    
+    // Sub-opções de Mais Opções
+    const maisOpcoesSubOptions = [
+        { key: 'maisOpcoes_perfilEmpresa', label: 'Perfil da Empresa', icon: '🏢' },
+        { key: 'maisOpcoes_backup', label: 'Backup dos Dados', icon: '💾' },
+        { key: 'maisOpcoes_restore', label: 'Restaurar Dados', icon: '📥' },
+        { key: 'maisOpcoes_support', label: 'Suporte', icon: '🆘' },
+        { key: 'maisOpcoes_license', label: 'Adquirir Licença', icon: '🔑' },
+        { key: 'maisOpcoes_licenseStatus', label: 'Status da Licença', icon: '📊' },
+        { key: 'maisOpcoes_users', label: 'Usuários', icon: '👥' },
+        { key: 'maisOpcoes_systemLog', label: 'Log do Sistema', icon: '📋' },
+        { key: 'maisOpcoes_settings', label: 'Cor do Tema', icon: '⚙️' },
+        { key: 'maisOpcoes_birthdayCard', label: 'Card de Aniversários', icon: '🎂' },
+        { key: 'maisOpcoes_buttonSettings', label: 'Definições dos Botões', icon: '🔘' },
+        { key: 'maisOpcoes_inactivityTimeout', label: 'Tempo Inatividade no sistema', icon: '⏱️' }
+    ];
+    
+    menuOptions.forEach(option => {
+        const isEnabled = permissions[option.key] !== false; // Padrão é true
+        const isDisabled = isCoutinho; // Coutinho sempre tem acesso total
+        
+        const permissionItem = document.createElement('div');
+        permissionItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 15px; border: 1px solid #e0e0e0; border-radius: 8px; background: #f8f9fa; margin-bottom: 10px;';
+        
+        permissionItem.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; cursor: pointer; flex: 1;" onclick="toggleSubOptions('${option.key}')">
+                <span style="font-size: 20px; transition: transform 0.3s;" id="arrow-${option.key}">▶</span>
+                <span style="font-size: 24px;">${option.icon}</span>
+                <span style="font-weight: 500; font-size: 16px;">${option.label}</span>
+            </div>
+            <label class="toggle-switch" style="position: relative; display: inline-block; width: 60px; height: 30px;">
+                <input type="checkbox" id="permission-${option.key}" ${isEnabled ? 'checked' : ''} ${isDisabled ? 'disabled' : ''} onchange="updatePermissionToggle('${option.key}')">
+                <span class="toggle-slider" id="toggle-${option.key}"></span>
+            </label>
+        `;
+        
+        permissionsList.appendChild(permissionItem);
+        updatePermissionToggle(option.key);
+        
+        // Criar container de sub-opções (inicialmente oculto)
+        let subOptionsContainer = null;
+        let subOptionsArray = [];
+        
+        if (option.key === 'vender') {
+            subOptionsArray = venderSubOptions;
+        } else if (option.key === 'formaPagamento') {
+            subOptionsArray = formaPagamentoSubOptions;
+        } else if (option.key === 'controleEstoque') {
+            subOptionsArray = controleEstoqueSubOptions;
+        } else if (option.key === 'maisOpcoes') {
+            subOptionsArray = maisOpcoesSubOptions;
+        }
+        
+        if (subOptionsArray.length > 0) {
+            subOptionsContainer = document.createElement('div');
+            subOptionsContainer.id = `sub-options-${option.key}`;
+            subOptionsContainer.style.cssText = 'margin-left: 40px; margin-top: 10px; margin-bottom: 10px; display: none; flex-direction: column; gap: 8px;';
+            
+            subOptionsArray.forEach(subOption => {
+                // Para formas de pagamento específicas, verificar se está ativa no sistema
+                let subIsEnabled;
+                if (subOption.methodId) {
+                    // É uma forma de pagamento específica - verificar se está ativa no sistema E se tem permissão
+                    const method = paymentMethods.find(m => m.id === subOption.methodId);
+                    const hasPermission = permissions[subOption.key] !== false;
+                    subIsEnabled = method && method.active && hasPermission;
+                } else if (subOption.key === 'controleEstoque_receivables') {
+                    // Contas a Receber - verificar permissão principal
+                    subIsEnabled = permissions[subOption.key] !== false;
+                } else {
+                    // É uma opção geral - verificar apenas permissão
+                    subIsEnabled = permissions[subOption.key] !== false;
+                }
+                const subIsDisabled = isCoutinho;
+                
+                const subPermissionItem = document.createElement('div');
+                subPermissionItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #e0e0e0; border-radius: 6px; background: #ffffff;';
+                
+                const onChangeHandler = subOption.methodId 
+                    ? `updatePaymentMethodPermission('${subOption.key}', ${subOption.methodId})`
+                    : `updatePermissionToggle('${subOption.key}')`;
+                
+                subPermissionItem.innerHTML = `
+                    <div style="display: flex; align-items: center; gap: 10px; ${subOption.key === 'controleEstoque_receivables' ? 'cursor: pointer; flex: 1;' : ''}" ${subOption.key === 'controleEstoque_receivables' ? `onclick="toggleSubOptions('${subOption.key}')"` : ''}>
+                        ${subOption.key === 'controleEstoque_receivables' ? `<span style="font-size: 16px; transition: transform 0.3s;" id="arrow-${subOption.key}">▶</span>` : ''}
+                        <span style="font-size: 18px;">${subOption.icon}</span>
+                        <span style="font-weight: 400; font-size: 14px; color: #666;">${subOption.label}</span>
+                    </div>
+                    <label class="toggle-switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
+                        <input type="checkbox" id="permission-${subOption.key}" ${subIsEnabled ? 'checked' : ''} ${subIsDisabled ? 'disabled' : ''} onchange="${onChangeHandler}">
+                        <span class="toggle-slider" id="toggle-${subOption.key}" style="border-radius: 26px;"></span>
+                    </label>
+                `;
+                
+                subOptionsContainer.appendChild(subPermissionItem);
+                updatePermissionToggle(subOption.key);
+                
+                // Se for Contas a Receber, criar sub-opções
+                if (subOption.key === 'controleEstoque_receivables') {
+                    const receivablesSubOptions = [
+                        { key: 'controleEstoque_receivables_visualizar', label: 'Visualizar Informações', icon: '👁️' },
+                        { key: 'controleEstoque_receivables_alterar', label: 'Alterar Dados', icon: '✏️' },
+                        { key: 'controleEstoque_receivables_alterarVencimento', label: 'Alterar Data de Vencimento', icon: '🔒' }
+                    ];
+                    
+                    const receivablesSubContainer = document.createElement('div');
+                    receivablesSubContainer.id = `sub-options-${subOption.key}`;
+                    receivablesSubContainer.style.cssText = 'margin-left: 40px; margin-top: 10px; margin-bottom: 10px; display: none; flex-direction: column; gap: 8px;';
+                    
+                    receivablesSubOptions.forEach(receivablesSub => {
+                        const receivablesSubEnabled = permissions[receivablesSub.key] !== false;
+                        const receivablesSubDisabled = isCoutinho;
+                        
+                        const receivablesSubItem = document.createElement('div');
+                        receivablesSubItem.style.cssText = 'display: flex; justify-content: space-between; align-items: center; padding: 10px; border: 1px solid #e0e0e0; border-radius: 6px; background: #f8f9fa;';
+                        
+                        receivablesSubItem.innerHTML = `
+                            <div style="display: flex; align-items: center; gap: 10px;">
+                                <span style="font-size: 16px;">${receivablesSub.icon}</span>
+                                <span style="font-weight: 400; font-size: 13px; color: #666;">${receivablesSub.label}</span>
+                            </div>
+                            <label class="toggle-switch" style="position: relative; display: inline-block; width: 50px; height: 26px;">
+                                <input type="checkbox" id="permission-${receivablesSub.key}" ${receivablesSubEnabled ? 'checked' : ''} ${receivablesSubDisabled ? 'disabled' : ''} onchange="updatePermissionToggle('${receivablesSub.key}')">
+                                <span class="toggle-slider" id="toggle-${receivablesSub.key}" style="border-radius: 26px;"></span>
+                            </label>
+                        `;
+                        
+                        receivablesSubContainer.appendChild(receivablesSubItem);
+                        updatePermissionToggle(receivablesSub.key);
+                    });
+                    
+                    subOptionsContainer.appendChild(receivablesSubContainer);
+                    
+                    // Se Contas a Receber estiver ativado, mostrar sub-opções
+                    if (subIsEnabled) {
+                        receivablesSubContainer.style.display = 'flex';
+                        const arrow = document.getElementById(`arrow-${subOption.key}`);
+                        if (arrow) arrow.style.transform = 'rotate(90deg)';
+                    }
+                    
+                    // Adicionar listener para mostrar/ocultar sub-opções
+                    const receivablesCheckbox = document.getElementById(`permission-${subOption.key}`);
+                    if (receivablesCheckbox) {
+                        receivablesCheckbox.addEventListener('change', function() {
+                            receivablesSubContainer.style.display = this.checked ? 'flex' : 'none';
+                            const arrow = document.getElementById(`arrow-${subOption.key}`);
+                            if (arrow) {
+                                arrow.style.transform = this.checked ? 'rotate(90deg)' : 'rotate(0deg)';
+                            }
+                        });
+                    }
+                }
+            });
+            
+            permissionsList.appendChild(subOptionsContainer);
+            
+            // Se estiver ativado, mostrar sub-opções
+            if (isEnabled) {
+                subOptionsContainer.style.display = 'flex';
+                document.getElementById(`arrow-${option.key}`).style.transform = 'rotate(90deg)';
+            }
+        }
+        
+    });
+    
+    // Adicionar listeners para mostrar/ocultar sub-opções quando os toggles principais forem alterados
+    menuOptions.forEach(option => {
+        const checkbox = document.getElementById(`permission-${option.key}`);
+        if (checkbox) {
+            checkbox.addEventListener('change', function() {
+                const subOptionsContainer = document.getElementById(`sub-options-${option.key}`);
+                const arrow = document.getElementById(`arrow-${option.key}`);
+            if (subOptionsContainer) {
+                subOptionsContainer.style.display = this.checked ? 'flex' : 'none';
+                    if (arrow) {
+                        arrow.style.transform = this.checked ? 'rotate(90deg)' : 'rotate(0deg)';
+                    }
+                }
+            });
+        }
+    });
+    
+    document.getElementById('user-permissions-modal').style.display = 'block';
+}
+
+// Atualizar visual do toggle
+function updatePermissionToggle(permissionKey) {
+    const checkbox = document.getElementById(`permission-${permissionKey}`);
+    const slider = document.getElementById(`toggle-${permissionKey}`);
+    
+    if (checkbox && slider) {
+        if (checkbox.checked) {
+            slider.style.background = '#4caf50'; // Verde quando ativado
+        } else {
+            slider.style.background = '#f44336'; // Vermelho quando desativado
+        }
+    }
+    
+    // Se "Vender" for desativado, desativar todas as sub-opções
+    if (permissionKey === 'vender' && !checkbox.checked) {
+        const subOptionsContainer = document.getElementById('sub-options-vender');
+        if (subOptionsContainer) {
+            subOptionsContainer.style.display = 'none';
+            const arrow = document.getElementById('arrow-vender');
+            if (arrow) arrow.style.transform = 'rotate(0deg)';
+            const subCheckboxes = subOptionsContainer.querySelectorAll('input[type="checkbox"]');
+            subCheckboxes.forEach(subCheckbox => {
+                subCheckbox.checked = false;
+                const subKey = subCheckbox.id.replace('permission-', '');
+                updatePermissionToggle(subKey);
+            });
+        }
+    }
+    
+    // Se "Forma de Pagamento" for desativado, desativar todas as sub-opções
+    if (permissionKey === 'formaPagamento' && !checkbox.checked) {
+        const subOptionsContainer = document.getElementById('sub-options-formaPagamento');
+        if (subOptionsContainer) {
+            subOptionsContainer.style.display = 'none';
+            const arrow = document.getElementById('arrow-formaPagamento');
+            if (arrow) arrow.style.transform = 'rotate(0deg)';
+            const subCheckboxes = subOptionsContainer.querySelectorAll('input[type="checkbox"]');
+            subCheckboxes.forEach(subCheckbox => {
+                subCheckbox.checked = false;
+                const subKey = subCheckbox.id.replace('permission-', '');
+                updatePermissionToggle(subKey);
+            });
+        }
+    }
+    
+    // Se "Controle de Estoque" for desativado, desativar todas as sub-opções
+    if (permissionKey === 'controleEstoque' && !checkbox.checked) {
+        const subOptionsContainer = document.getElementById('sub-options-controleEstoque');
+        if (subOptionsContainer) {
+            subOptionsContainer.style.display = 'none';
+            const arrow = document.getElementById('arrow-controleEstoque');
+            if (arrow) arrow.style.transform = 'rotate(0deg)';
+            const subCheckboxes = subOptionsContainer.querySelectorAll('input[type="checkbox"]');
+            subCheckboxes.forEach(subCheckbox => {
+                subCheckbox.checked = false;
+                const subKey = subCheckbox.id.replace('permission-', '');
+                updatePermissionToggle(subKey);
+            });
+        }
+    }
+    
+    // Se "Mais Opções" for desativado, desativar todas as sub-opções
+    if (permissionKey === 'maisOpcoes' && !checkbox.checked) {
+        const subOptionsContainer = document.getElementById('sub-options-maisOpcoes');
+        if (subOptionsContainer) {
+            subOptionsContainer.style.display = 'none';
+            const arrow = document.getElementById('arrow-maisOpcoes');
+            if (arrow) arrow.style.transform = 'rotate(0deg)';
+            const subCheckboxes = subOptionsContainer.querySelectorAll('input[type="checkbox"]');
+            subCheckboxes.forEach(subCheckbox => {
+                subCheckbox.checked = false;
+                const subKey = subCheckbox.id.replace('permission-', '');
+                updatePermissionToggle(subKey);
+            });
+        }
+    }
+}
+
+// Toggle para expandir/colapsar sub-opções
+function toggleSubOptions(optionKey) {
+    const subOptionsContainer = document.getElementById(`sub-options-${optionKey}`);
+    const arrow = document.getElementById(`arrow-${optionKey}`);
+    
+    if (subOptionsContainer && arrow) {
+        const isVisible = subOptionsContainer.style.display === 'flex';
+        subOptionsContainer.style.display = isVisible ? 'none' : 'flex';
+        arrow.style.transform = isVisible ? 'rotate(0deg)' : 'rotate(90deg)';
+    }
+}
+
+// Atualizar permissão de forma de pagamento específica
+function updatePaymentMethodPermission(permissionKey, methodId) {
+    updatePermissionToggle(permissionKey);
+    
+    // Se for uma forma de pagamento específica, atualizar também o status ativo/inativo
+    if (methodId) {
+        const checkbox = document.getElementById(`permission-${permissionKey}`);
+        if (checkbox) {
+            const method = paymentMethods.find(m => m.id === methodId);
+            if (method) {
+                method.active = checkbox.checked;
+                savePaymentMethods();
+            }
+        }
+    }
+}
+
+// Fechar modal de permissões
+function closeUserPermissionsModal() {
+    document.getElementById('user-permissions-modal').style.display = 'none';
+    editingPermissionsUserId = null;
+}
+
+// Salvar permissões do usuário
+function saveUserPermissions() {
+    // Verificar se o usuário atual é administrador
+    if (!currentUser || currentUser.accessLevel !== 'admin') {
+        alert('⚠️ Apenas administradores podem salvar permissões de usuários.');
+        return;
+    }
+    
+    if (!editingPermissionsUserId) return;
+    
+    const user = users.find(u => u.id === editingPermissionsUserId);
+    const isCoutinho = user && user.username && user.username.toLowerCase() === 'coutinho';
+    
+    // Carregar formas de pagamento
+    initializePaymentMethods();
+    
+    // Criar objeto de permissões base
+    const permissions = {
+        vender: isCoutinho ? true : document.getElementById('permission-vender').checked,
+        vender_cancelarItemVenda: isCoutinho ? true : (document.getElementById('permission-vender_cancelarItemVenda')?.checked ?? true),
+        vender_editarItem: isCoutinho ? true : (document.getElementById('permission-vender_editarItem')?.checked ?? true),
+        vender_aplicarDesconto: isCoutinho ? true : (document.getElementById('permission-vender_aplicarDesconto')?.checked ?? true),
+        vender_localizarVenda: isCoutinho ? true : (document.getElementById('permission-vender_localizarVenda')?.checked ?? true),
+        vender_outrasAcoes: isCoutinho ? true : (document.getElementById('permission-vender_outrasAcoes')?.checked ?? true),
+        formaPagamento: isCoutinho ? true : (document.getElementById('permission-formaPagamento')?.checked ?? true),
+        formaPagamento_alterar: isCoutinho ? true : (document.getElementById('permission-formaPagamento_alterar')?.checked ?? true),
+        controleEstoque: isCoutinho ? true : document.getElementById('permission-controleEstoque').checked,
+        controleEstoque_clientes: isCoutinho ? true : (document.getElementById('permission-controleEstoque_clientes')?.checked ?? true),
+        controleEstoque_produtos: isCoutinho ? true : (document.getElementById('permission-controleEstoque_produtos')?.checked ?? true),
+        controleEstoque_brands: isCoutinho ? true : (document.getElementById('permission-controleEstoque_brands')?.checked ?? true),
+        controleEstoque_categories: isCoutinho ? true : (document.getElementById('permission-controleEstoque_categories')?.checked ?? true),
+        controleEstoque_suppliers: isCoutinho ? true : (document.getElementById('permission-controleEstoque_suppliers')?.checked ?? true),
+        controleEstoque_entries: isCoutinho ? true : (document.getElementById('permission-controleEstoque_entries')?.checked ?? true),
+        controleEstoque_exits: isCoutinho ? true : (document.getElementById('permission-controleEstoque_exits')?.checked ?? true),
+        controleEstoque_receivables: isCoutinho ? true : (document.getElementById('permission-controleEstoque_receivables')?.checked ?? true),
+        controleEstoque_receivables_visualizar: isCoutinho ? true : (document.getElementById('permission-controleEstoque_receivables_visualizar')?.checked ?? true),
+        controleEstoque_receivables_alterar: isCoutinho ? true : (document.getElementById('permission-controleEstoque_receivables_alterar')?.checked ?? true),
+        controleEstoque_receivables_alterarVencimento: isCoutinho ? true : (document.getElementById('permission-controleEstoque_receivables_alterarVencimento')?.checked ?? false),
+        controleEstoque_reports: isCoutinho ? true : (document.getElementById('permission-controleEstoque_reports')?.checked ?? true),
+        controleEstoque_settings: isCoutinho ? true : (document.getElementById('permission-controleEstoque_settings')?.checked ?? true),
+        maisOpcoes: isCoutinho ? true : document.getElementById('permission-maisOpcoes').checked,
+        maisOpcoes_perfilEmpresa: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_perfilEmpresa')?.checked ?? true),
+        maisOpcoes_backup: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_backup')?.checked ?? true),
+        maisOpcoes_restore: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_restore')?.checked ?? true),
+        maisOpcoes_support: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_support')?.checked ?? true),
+        maisOpcoes_license: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_license')?.checked ?? true),
+        maisOpcoes_licenseStatus: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_licenseStatus')?.checked ?? true),
+        maisOpcoes_users: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_users')?.checked ?? true),
+        maisOpcoes_systemLog: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_systemLog')?.checked ?? true),
+        maisOpcoes_settings: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_settings')?.checked ?? true),
+        maisOpcoes_birthdayCard: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_birthdayCard')?.checked ?? true),
+        maisOpcoes_buttonSettings: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_buttonSettings')?.checked ?? true),
+        maisOpcoes_inactivityTimeout: isCoutinho ? true : (document.getElementById('permission-maisOpcoes_inactivityTimeout')?.checked ?? true)
+    };
+    
+    // Adicionar permissões de formas de pagamento específicas
+    paymentMethods.forEach(method => {
+        const methodKey = `formaPagamento_${method.id}`;
+        const checkbox = document.getElementById(`permission-${methodKey}`);
+        if (checkbox) {
+            permissions[methodKey] = isCoutinho ? true : checkbox.checked;
+        }
+    });
+    
+    userPermissions[editingPermissionsUserId] = permissions;
+    localStorage.setItem('userPermissions', JSON.stringify(userPermissions));
+    
+    // Atualizar usuário no array
+    const userIndex = users.findIndex(u => u.id === editingPermissionsUserId);
+    if (userIndex !== -1) {
+        users[userIndex].permissions = permissions;
+        saveUsers();
+    }
+    
+    alert('Permissões salvas com sucesso!');
+    closeUserPermissionsModal();
+    loadUsers(); // Recarregar lista de usuários
+    
+    // Atualizar visibilidade dos menus se for o próprio usuário logado
+    if (editingPermissionsUserId === currentUser?.id) {
+        updateMoreOptionsVisibility();
+        updateInventoryMenuVisibility();
+        updateNavigationVisibility();
+    }
+}
+
+// Verificar se usuário tem permissão para acessar uma seção
+// Verificar permissão específica de vendas
+function hasSalesPermission(permissionKey) {
+    if (!currentUser) return false;
+    
+    // Coutinho (super admin) sempre tem acesso total
+    const isCoutinho = currentUser.username && currentUser.username.toLowerCase() === 'coutinho';
+    if (isCoutinho) return true;
+    
+    // Administradores sempre têm permissão
+    if (currentUser.accessLevel === 'admin') return true;
+    
+    // Verificar permissões do usuário
+    const userPermissionsData = userPermissions[currentUser.id] || {};
+    
+    // Se não houver permissões salvas, usar padrão (todas permitidas)
+    if (Object.keys(userPermissionsData).length === 0) {
+        return true;
+    }
+    
+    // Verificar permissão específica (padrão é true se não estiver definido como false)
+    return userPermissionsData[permissionKey] !== false;
+}
+
+// Verificar permissão específica de Contas a Receber
+function hasReceivablesPermission(permissionType) {
+    if (!currentUser) return false;
+    
+    // Coutinho (super admin) sempre tem acesso total
+    const isCoutinho = currentUser.username && currentUser.username.toLowerCase() === 'coutinho';
+    if (isCoutinho) return true;
+    
+    // Administradores sempre têm permissão
+    if (currentUser.accessLevel === 'admin') return true;
+    
+    // Verificar permissões do usuário
+    const userPermissionsData = userPermissions[currentUser.id] || {};
+    
+    // Se não houver permissões salvas, usar padrão (todas permitidas)
+    if (Object.keys(userPermissionsData).length === 0) {
+        return true;
+    }
+    
+    // Verificar se tem permissão para acessar Contas a Receber
+    if (userPermissionsData['controleEstoque_receivables'] === false) {
+        return false;
+    }
+    
+    // Mapear tipo de permissão para chave
+    const permissionMap = {
+        'visualizar': 'controleEstoque_receivables_visualizar',
+        'alterar': 'controleEstoque_receivables_alterar',
+        'alterarVencimento': 'controleEstoque_receivables_alterarVencimento'
+    };
+    
+    const permissionKey = permissionMap[permissionType];
+    if (!permissionKey) return true; // Se não mapeado, permitir por padrão
+    
+    // Verificar permissão específica (padrão é true se não estiver definido como false)
+    return userPermissionsData[permissionKey] !== false;
+}
+
+// Solicitar senha de autorização quando não tiver permissão
+function requestAuthorizationPassword(permissionKey, actionName) {
+    return new Promise((resolve) => {
+        const password = prompt(`⚠️ Você não tem permissão para "${actionName}".\n\nDigite a senha de um usuário com permissão para autorizar esta ação:`);
+        
+        if (!password) {
+            resolve(false);
+            return;
+        }
+        
+        // Verificar se existe um usuário com essa senha e com a permissão necessária
+        const authorizedUser = users.find(user => {
+            if (user.password !== password) return false;
+            
+            // Coutinho sempre autoriza
+            if (user.username && user.username.toLowerCase() === 'coutinho') return true;
+            
+            // Administradores sempre autorizam
+            if (user.accessLevel === 'admin') return true;
+            
+            // Verificar se o usuário tem a permissão específica
+            const userPermissionsData = userPermissions[user.id] || {};
+            return userPermissionsData[permissionKey] !== false;
+        });
+        
+        if (authorizedUser) {
+            alert(`✅ Ação autorizada por ${authorizedUser.name || authorizedUser.username}`);
+            resolve(true);
+        } else {
+            alert('❌ Senha inválida ou usuário sem permissão para esta ação.');
+            resolve(false);
+        }
+    });
+}
+
+function hasUserPermission(sectionKey) {
+    if (!currentUser) return false;
+    
+    // Coutinho (super admin) sempre tem acesso total
+    const isCoutinho = currentUser.username && currentUser.username.toLowerCase() === 'coutinho';
+    if (isCoutinho) return true;
+    
+    // Administradores sempre têm permissão (mas podem ter restrições se não for Coutinho)
+    if (currentUser.accessLevel === 'admin') return true;
+    
+    // Verificar permissões do usuário
+    const userPermissionsData = userPermissions[currentUser.id] || {};
+    
+    // Se não houver permissões salvas, usar padrão (todas permitidas)
+    if (Object.keys(userPermissionsData).length === 0) {
+        return true;
+    }
+    
+    // Mapear seções para chaves de permissão
+    const sectionMap = {
+        'sales': 'vender',
+        'inventory': 'controleEstoque',
+        'clients': 'controleEstoque_clientes',
+        'products': 'controleEstoque_produtos',
+        'brands': 'controleEstoque_brands',
+        'categories': 'controleEstoque_categories',
+        'suppliers': 'controleEstoque_suppliers',
+        'entries': 'controleEstoque_entries',
+        'exits': 'controleEstoque_exits',
+        'receivables': 'controleEstoque_receivables',
+        'reports': 'controleEstoque_reports',
+        'inventory-settings': 'controleEstoque_settings',
+        'more-options': 'maisOpcoes',
+        'company': 'maisOpcoes_perfilEmpresa',
+        'backup': 'maisOpcoes_backup',
+        'restore': 'maisOpcoes_restore',
+        'support': 'maisOpcoes_support',
+        'license': 'maisOpcoes_license',
+        'license-status': 'maisOpcoes_licenseStatus',
+        'users': 'maisOpcoes_users',
+        'system-log': 'maisOpcoes_systemLog',
+        'settings': 'maisOpcoes_settings',
+        'birthday-card-settings': 'maisOpcoes_birthdayCard',
+        'button-settings': 'maisOpcoes_buttonSettings',
+        'inactivity-timeout': 'maisOpcoes_inactivityTimeout'
+    };
+    
+    const permissionKey = sectionMap[sectionKey];
+    if (!permissionKey) return true; // Seção não mapeada, permitir por padrão
+    
+    // Verificar se a permissão principal está ativa (para sub-opções)
+    if (permissionKey.startsWith('controleEstoque_')) {
+        // Primeiro verificar se "Controle de Estoque" está ativo
+        if (userPermissionsData.controleEstoque === false) {
+            return false;
+        }
+        // Depois verificar a sub-opção específica
+        return userPermissionsData[permissionKey] !== false;
+    }
+    
+    if (permissionKey.startsWith('maisOpcoes_')) {
+        // Primeiro verificar se "Mais Opções" está ativo
+        if (userPermissionsData.maisOpcoes === false) {
+            return false;
+        }
+        // Depois verificar a sub-opção específica
+        return userPermissionsData[permissionKey] !== false;
+    }
+    
+    return userPermissionsData[permissionKey] !== false;
+}
+
 // Carregar usuários no filtro de log
 function loadUsersForLogFilter() {
     const userFilter = document.getElementById('log-filter-user');
@@ -5016,3 +6364,7622 @@ function setupThemeColorPicker() {
     }
 }
 
+// ==================== FUNÇÕES DO CONTROLE DE ESTOQUE ====================
+
+// Salvar produtos no localStorage
+function saveProducts() {
+    localStorage.setItem('products', JSON.stringify(products));
+}
+
+// Carregar produtos do localStorage
+function loadProductsFromStorage() {
+    products = JSON.parse(localStorage.getItem('products')) || [];
+}
+
+// Gerar ID único para produto
+function generateProductId() {
+    return 'product_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Formatar valor monetário
+function formatCurrency(value) {
+    if (!value && value !== 0) return 'R$ 0,00';
+    return new Intl.NumberFormat('pt-BR', {
+        style: 'currency',
+        currency: 'BRL'
+    }).format(value);
+}
+
+// Mostrar view do inventário
+function showInventoryView(view, event) {
+    // Verificar permissão antes de mostrar a view
+    const viewToSectionMap = {
+        'clients': 'clients',
+        'products': 'products',
+        'brands': 'brands',
+        'categories': 'categories',
+        'suppliers': 'suppliers',
+        'entries': 'entries',
+        'exits': 'exits',
+        'receivables': 'receivables',
+        'reports': 'reports',
+        'settings': 'inventory-settings'
+    };
+    
+    const sectionId = viewToSectionMap[view];
+    if (sectionId === 'receivables') {
+        // Para Contas a Receber, verificar permissão de visualizar
+        if (!hasReceivablesPermission('visualizar')) {
+            alert('Você não tem permissão para acessar Contas a Receber.');
+            return;
+        }
+    } else if (sectionId && !hasUserPermission(sectionId)) {
+        alert('Você não tem permissão para acessar esta opção.');
+        return;
+    }
+    // Remover active de todos os botões
+    document.querySelectorAll('.inventory-option-btn').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    
+    // Remover active de todas as views
+    document.querySelectorAll('.inventory-view').forEach(v => {
+        v.classList.remove('active');
+    });
+    
+    // Ativar botão clicado (se houver evento)
+    if (event && event.target) {
+        event.target.classList.add('active');
+    } else {
+        // Se não houver evento, ativar o botão correspondente manualmente
+        const btn = document.querySelector(`.inventory-option-btn[onclick*="'${view}'"]`);
+        if (btn) {
+            btn.classList.add('active');
+        }
+    }
+    
+    // Mostrar view correspondente
+    const viewElement = document.getElementById(`inventory-${view}-view`);
+    if (viewElement) {
+        viewElement.classList.add('active');
+    }
+    
+    // Carregar conteúdo específico de cada view
+    if (view === 'products') {
+        showProductsListView();
+        populateProductBrandSelect(); // Popular select de marcas
+        populateProductCategorySelect(); // Popular select de categorias
+        populateProductSupplierSelect(); // Popular select de fornecedores
+        loadProducts();
+        updateInventoryProductsCount(); // Atualizar contador no botão
+    } else if (view === 'clients') {
+        showInventoryClientsListView();
+        loadInventoryClients();
+        updateInventoryClientsCount(); // Atualizar contador no botão
+    } else if (view === 'brands') {
+        showBrandsListView();
+        loadBrands();
+        updateInventoryBrandsCount(); // Atualizar contador no botão
+        // Migrar dados na primeira vez
+        migrateBrandsFromProducts();
+    } else if (view === 'categories') {
+        showCategoriesListView();
+        loadCategories();
+        updateInventoryCategoriesCount(); // Atualizar contador no botão
+        // Migrar dados na primeira vez
+        migrateCategoriesFromProducts();
+    } else if (view === 'suppliers') {
+        showSuppliersListView();
+        loadSuppliers();
+        updateInventorySuppliersCount(); // Atualizar contador no botão
+    } else if (view === 'settings') {
+        // Inicializar formas de pagamento e mostrar menu de configurações
+        initializePaymentMethods();
+        const settingsView = document.getElementById('inventory-settings-view');
+        const paymentMethodsView = document.getElementById('payment-methods-view');
+        if (settingsView) {
+            const menu = settingsView.querySelector('.settings-menu');
+            if (menu) menu.style.display = 'block';
+        }
+        if (paymentMethodsView) {
+            paymentMethodsView.style.display = 'none';
+        }
+    } else if (view === 'exits') {
+        loadSalesList();
+    } else if (view === 'receivables') {
+        loadReceivablesList();
+    }
+}
+
+// Atualizar contador de clientes no botão lateral
+function updateInventoryClientsCount() {
+    const countBadge = document.getElementById('inventory-clients-count');
+    if (countBadge) {
+        countBadge.textContent = `[${clients.length}]`;
+    }
+}
+
+// Atualizar contador de produtos no botão lateral
+function updateInventoryProductsCount() {
+    const countBadge = document.getElementById('inventory-products-count');
+    if (countBadge) {
+        countBadge.textContent = `[${products.length}]`;
+    }
+}
+
+function updateInventoryBrandsCount() {
+    const countBadge = document.getElementById('inventory-brands-count');
+    if (countBadge) {
+        countBadge.textContent = `[${brands.length}]`;
+    }
+}
+
+function updateInventoryCategoriesCount() {
+    const countBadge = document.getElementById('inventory-categories-count');
+    if (countBadge) {
+        countBadge.textContent = `[${categories.length}]`;
+    }
+}
+
+// Atualizar contador de fornecedores no botão lateral
+function updateInventorySuppliersCount() {
+    const countBadge = document.getElementById('inventory-suppliers-count');
+    if (countBadge) {
+        countBadge.textContent = `[${suppliers.length}]`;
+    }
+}
+
+// ============================================
+// MÓDULO DE CATEGORIAS
+// ============================================
+
+let editingCategoryId = null;
+
+// Migrar categorias existentes dos produtos
+function migrateCategoriesFromProducts() {
+    // Verificar se já foi migrado
+    const migrationFlag = localStorage.getItem('categories_migrated');
+    if (migrationFlag === 'true') return;
+    
+    // Coletar todas as categorias únicas dos produtos
+    const uniqueCategories = new Set();
+    products.forEach(product => {
+        const categoria = product.categoria || '';
+        if (categoria && categoria.trim() !== '' && categoria !== 'Diversos') {
+            uniqueCategories.add(categoria.trim());
+        }
+    });
+    
+    // Criar registros de categoria para cada categoria única
+    uniqueCategories.forEach(nomeCategoria => {
+        // Verificar se já existe
+        const exists = categories.find(c => c.nome_categoria.toLowerCase() === nomeCategoria.toLowerCase());
+        if (!exists) {
+            const newCategory = {
+                id: Date.now() + Math.random(),
+                nome_categoria: nomeCategoria,
+                categoria_pai_id: null,
+                descricao: '',
+                status_ativo: true,
+                createdAt: new Date().toISOString()
+            };
+            categories.push(newCategory);
+        }
+    });
+    
+    // Adicionar categoria padrão "Diversos" se não existir
+    const diversosExists = categories.find(c => c.nome_categoria.toLowerCase() === 'diversos');
+    if (!diversosExists) {
+        const diversosCategory = {
+            id: Date.now() + Math.random() + 1,
+            nome_categoria: 'Diversos',
+            categoria_pai_id: null,
+            descricao: 'Categoria padrão para produtos sem categoria específica',
+            status_ativo: true,
+            createdAt: new Date().toISOString()
+        };
+        categories.push(diversosCategory);
+    }
+    
+    // Salvar e marcar como migrado
+    saveCategories();
+    localStorage.setItem('categories_migrated', 'true');
+    
+    // Atualizar produtos para referenciar IDs
+    updateProductsCategoryReferences();
+}
+
+// Atualizar produtos para usar referência de ID ao invés de nome
+function updateProductsCategoryReferences() {
+    let updated = false;
+    products.forEach(product => {
+        const categoriaNome = product.categoria || 'Diversos';
+        if (!product.categoryId) {
+            const category = categories.find(c => c.nome_categoria.toLowerCase() === categoriaNome.toLowerCase());
+            if (category) {
+                product.categoryId = category.id;
+                product.categoria = category.nome_categoria; // Manter nome para compatibilidade
+                updated = true;
+            }
+        }
+    });
+    
+    if (updated) {
+        saveProducts();
+    }
+}
+
+// Salvar categorias no localStorage
+function saveCategories() {
+    try {
+        localStorage.setItem('categories', JSON.stringify(categories));
+    } catch (error) {
+        console.error('Erro ao salvar categorias:', error);
+        alert('Erro ao salvar categorias. Por favor, tente novamente.');
+    }
+}
+
+// Carregar categorias do localStorage
+function loadCategoriesFromStorage() {
+    try {
+        const stored = localStorage.getItem('categories');
+        if (stored) {
+            categories = JSON.parse(stored);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar categorias:', error);
+        categories = [];
+    }
+}
+
+// Mostrar lista de categorias
+function showCategoriesListView() {
+    document.getElementById('categories-list-view').classList.add('active');
+    document.getElementById('categories-register-view').classList.remove('active');
+    loadCategories();
+}
+
+// Mostrar formulário de cadastro
+function showCategoriesRegisterView() {
+    // SEMPRE limpar variáveis de edição ao abrir para cadastro
+    editingCategoryId = null;
+    document.getElementById('category-id').value = '';
+    
+    document.getElementById('categories-list-view').classList.remove('active');
+    document.getElementById('categories-register-view').classList.add('active');
+    resetCategoryForm();
+    populateCategoryParentSelect();
+    document.getElementById('category-form-title').textContent = 'Cadastrar Categoria';
+}
+
+// Resetar formulário
+function resetCategoryForm() {
+    document.getElementById('category-id').value = '';
+    document.getElementById('category-nome').value = '';
+    document.getElementById('category-pai-id').value = '';
+    document.getElementById('category-descricao').value = '';
+    document.getElementById('category-status-ativo').checked = true;
+}
+
+// Popular select de categoria pai
+function populateCategoryParentSelect() {
+    const select = document.getElementById('category-pai-id');
+    if (!select) return;
+    
+    loadCategoriesFromStorage();
+    
+    // Salvar valor atual
+    const currentValue = select.value;
+    
+    // Limpar e adicionar opção padrão
+    select.innerHTML = '<option value="">Nenhuma (Categoria Principal)</option>';
+    
+    // Adicionar categorias ativas (exceto a atual se estiver editando)
+    const activeCategories = categories.filter(c => {
+        if (editingCategoryId && c.id == editingCategoryId) return false; // Não permitir selecionar a si mesma
+        return c.status_ativo !== false;
+    });
+    
+    activeCategories.sort((a, b) => a.nome_categoria.localeCompare(b.nome_categoria));
+    
+    activeCategories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.id;
+        option.textContent = category.nome_categoria;
+        select.appendChild(option);
+    });
+    
+    // Restaurar valor se ainda existir
+    if (currentValue) {
+        const option = select.querySelector(`option[value="${currentValue}"]`);
+        if (option) {
+            select.value = currentValue;
+        }
+    }
+}
+
+// Carregar e exibir categorias
+function loadCategories() {
+    const container = document.getElementById('categories-list');
+    if (!container) return;
+    
+    loadCategoriesFromStorage();
+    
+    // Aplicar filtros
+    let filteredCategories = categories;
+    
+    // Filtro de pesquisa
+    const searchInput = document.getElementById('category-search-input');
+    if (searchInput && searchInput.value.trim()) {
+        const searchTerm = normalizeText(searchInput.value);
+        filteredCategories = filteredCategories.filter(category => 
+            normalizeText(category.nome_categoria).includes(searchTerm)
+        );
+    }
+    
+    // Limpar container
+    container.innerHTML = '';
+    
+    if (filteredCategories.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">Nenhuma categoria cadastrada.</p>';
+        return;
+    }
+    
+    // Criar cards
+    filteredCategories.forEach(category => {
+        const card = createCategoryCard(category);
+        container.appendChild(card);
+    });
+}
+
+// Criar card de categoria
+function createCategoryCard(category) {
+    const card = document.createElement('div');
+    card.className = 'client-card';
+    card.onclick = () => editCategoryFromCard(category.id);
+    
+    // Buscar categoria pai se houver
+    let hierarquiaHtml = '';
+    if (category.categoria_pai_id) {
+        const categoriaPai = categories.find(c => c.id == category.categoria_pai_id);
+        if (categoriaPai) {
+            hierarquiaHtml = `<div class="client-info" style="color: #666; font-style: italic;">
+                <strong>Subcategoria de:</strong> ${categoriaPai.nome_categoria}
+            </div>`;
+        }
+    }
+    
+    // Contar produtos nesta categoria
+    const produtosCount = products.filter(p => {
+        if (p.categoryId == category.id) return true;
+        if (p.categoria && p.categoria.toLowerCase() === category.nome_categoria.toLowerCase()) return true;
+        return false;
+    }).length;
+    
+    const produtosHtml = `<div class="client-info">
+        <strong>Produtos:</strong> ${produtosCount} produto(s)
+    </div>`;
+    
+    const statusBadge = category.status_ativo !== false 
+        ? '<span class="category-badge" style="background: #4caf50;">Ativa</span>'
+        : '<span class="category-badge" style="background: #f44336;">Inativa</span>';
+    
+    card.innerHTML = `
+        <div class="client-card-header">
+            <h3>${category.nome_categoria} ${statusBadge}</h3>
+        </div>
+        ${hierarquiaHtml}
+        ${produtosHtml}
+        <div class="client-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-edit" onclick="editCategoryFromCard('${category.id}')">✏️ Editar</button>
+            <button class="btn btn-delete" onclick="deleteCategoryFromCard('${category.id}')">🗑️ Excluir</button>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Editar categoria a partir do card
+function editCategoryFromCard(id) {
+    const category = categories.find(c => c.id == id);
+    if (!category) return;
+    
+    // Definir que está editando ANTES de mostrar a view
+    editingCategoryId = id;
+    document.getElementById('category-id').value = category.id;
+    
+    // Mostrar view sem limpar (não chamar showCategoriesRegisterView que limpa tudo)
+    document.getElementById('categories-list-view').classList.remove('active');
+    document.getElementById('categories-register-view').classList.add('active');
+    
+    // Preencher formulário
+    document.getElementById('category-form-title').textContent = 'Editar Categoria';
+    document.getElementById('category-nome').value = category.nome_categoria || '';
+    document.getElementById('category-descricao').value = category.descricao || '';
+    document.getElementById('category-status-ativo').checked = category.status_ativo !== false;
+    
+    // Popular select de categoria pai e definir valor
+    populateCategoryParentSelect();
+    if (category.categoria_pai_id) {
+        document.getElementById('category-pai-id').value = category.categoria_pai_id;
+    }
+}
+
+// Excluir categoria a partir do card
+function deleteCategoryFromCard(id) {
+    if (!confirm('Tem certeza que deseja excluir esta categoria?')) return;
+    
+    // Verificar se há produtos usando esta categoria
+    const productsUsingCategory = products.filter(p => {
+        if (p.categoryId == id) return true;
+        const category = categories.find(c => c.id == id);
+        if (category && p.categoria && p.categoria.toLowerCase() === category.nome_categoria.toLowerCase()) return true;
+        return false;
+    });
+    
+    if (productsUsingCategory.length > 0) {
+        if (!confirm(`Esta categoria está sendo usada por ${productsUsingCategory.length} produto(s). Deseja realmente excluir? Os produtos ficarão sem categoria.`)) {
+            return;
+        }
+    }
+    
+    // Verificar se há subcategorias
+    const subcategories = categories.filter(c => c.categoria_pai_id == id);
+    if (subcategories.length > 0) {
+        if (!confirm(`Esta categoria possui ${subcategories.length} subcategoria(s). Ao excluir, as subcategorias ficarão sem categoria pai. Deseja continuar?`)) {
+            return;
+        }
+    }
+    
+    const index = categories.findIndex(c => c.id == id);
+    if (index !== -1) {
+        categories.splice(index, 1);
+        saveCategories();
+        loadCategories();
+        updateInventoryCategoriesCount();
+        alert('Categoria excluída com sucesso!');
+    }
+}
+
+// Pesquisar categorias
+function searchCategories() {
+    loadCategories();
+}
+
+// Salvar categoria (criar ou editar)
+function saveCategory() {
+    const idInput = document.getElementById('category-id');
+    const id = idInput ? idInput.value : '';
+    const nomeCategoria = document.getElementById('category-nome').value.trim();
+    
+    if (!nomeCategoria) {
+        alert('Por favor, informe o nome da categoria.');
+        return;
+    }
+    
+    if (nomeCategoria.length > 50) {
+        alert('O nome da categoria deve ter no máximo 50 caracteres.');
+        return;
+    }
+    
+    // Verificar duplicatas (exceto a atual)
+    const existingCategory = categories.find(c => 
+        c.nome_categoria.toLowerCase() === nomeCategoria.toLowerCase() && 
+        (!id || c.id != id)
+    );
+    
+    if (existingCategory) {
+        alert('Já existe uma categoria com este nome.');
+        return;
+    }
+    
+    const categoriaPaiId = document.getElementById('category-pai-id').value;
+    
+    // Verificar se está tentando criar uma hierarquia circular
+    if (categoriaPaiId && id) {
+        let currentParentId = categoriaPaiId;
+        while (currentParentId) {
+            if (currentParentId == id) {
+                alert('Não é possível criar uma hierarquia circular. Uma categoria não pode ser pai de si mesma.');
+                return;
+            }
+            const parentCategory = categories.find(c => c.id == currentParentId);
+            if (!parentCategory) break;
+            currentParentId = parentCategory.categoria_pai_id;
+        }
+    }
+    
+    const categoryData = {
+        nome_categoria: nomeCategoria,
+        categoria_pai_id: categoriaPaiId ? parseFloat(categoriaPaiId) : null,
+        descricao: document.getElementById('category-descricao').value.trim(),
+        status_ativo: document.getElementById('category-status-ativo').checked,
+        updatedAt: new Date().toISOString()
+    };
+    
+    if (id && editingCategoryId) {
+        // Editar existente
+        const index = categories.findIndex(c => c.id == id);
+        if (index !== -1) {
+            categoryData.id = categories[index].id;
+            categoryData.createdAt = categories[index].createdAt || new Date().toISOString();
+            categories[index] = categoryData;
+        }
+    } else {
+        // Criar novo
+        categoryData.id = Date.now();
+        categoryData.createdAt = new Date().toISOString();
+        categories.push(categoryData);
+    }
+    
+    saveCategories();
+    loadCategories();
+    updateInventoryCategoriesCount();
+    
+    // Limpar TUDO após salvar para garantir que próximo cadastro seja novo
+    editingCategoryId = null;
+    document.getElementById('category-id').value = '';
+    document.getElementById('category-form').reset();
+    document.getElementById('category-form-title').textContent = 'Cadastrar Categoria';
+    document.getElementById('category-status-ativo').checked = true;
+    document.getElementById('category-pai-id').value = '';
+    
+    alert(id ? 'Categoria atualizada com sucesso!' : 'Categoria cadastrada com sucesso!');
+    
+    showCategoriesListView();
+}
+
+// ============================================
+// MÓDULO DE MARCA/FABRICANTE
+// ============================================
+
+let editingBrandId = null;
+
+// Migrar marcas/fabricantes existentes dos produtos
+function migrateBrandsFromProducts() {
+    // Verificar se já foi migrado
+    const migrationFlag = localStorage.getItem('brands_migrated');
+    if (migrationFlag === 'true') return;
+    
+    // Coletar todas as marcas únicas dos produtos
+    const uniqueBrands = new Set();
+    products.forEach(product => {
+        const marca = product.marca || product.brand || '';
+        if (marca && marca.trim() !== '' && marca !== 'Outras') {
+            uniqueBrands.add(marca.trim());
+        }
+    });
+    
+    // Criar registros de marca para cada marca única
+    uniqueBrands.forEach(nomeMarca => {
+        // Verificar se já existe
+        const exists = brands.find(b => b.nome_completo.toLowerCase() === nomeMarca.toLowerCase());
+        if (!exists) {
+            const newBrand = {
+                id: Date.now() + Math.random(),
+                nome_completo: nomeMarca,
+                nome_fantasia: '',
+                tipo_pessoa: '',
+                identificador_fiscal: '',
+                telefone_principal: '',
+                email_principal: '',
+                site_oficial: '',
+                endereco_completo: '',
+                cidade_estado_cep: '',
+                contato_chave: '',
+                condicoes_pagamento: '',
+                prazo_entrega: '',
+                status_ativo: true,
+                createdAt: new Date().toISOString()
+            };
+            brands.push(newBrand);
+        }
+    });
+    
+    // Salvar e marcar como migrado
+    saveBrands();
+    localStorage.setItem('brands_migrated', 'true');
+    
+    // Atualizar produtos para referenciar IDs
+    updateProductsBrandReferences();
+}
+
+// Atualizar produtos para usar referência de ID ao invés de nome
+function updateProductsBrandReferences() {
+    let updated = false;
+    products.forEach(product => {
+        const marcaNome = product.marca || product.brand || '';
+        if (marcaNome && marcaNome !== 'Outras' && !product.brandId) {
+            const brand = brands.find(b => b.nome_completo.toLowerCase() === marcaNome.toLowerCase());
+            if (brand) {
+                product.brandId = brand.id;
+                product.marca = brand.nome_completo; // Manter nome para compatibilidade
+                updated = true;
+            }
+        }
+    });
+    
+    if (updated) {
+        saveProducts();
+    }
+}
+
+// Salvar marcas no localStorage
+function saveBrands() {
+    try {
+        localStorage.setItem('brands', JSON.stringify(brands));
+    } catch (error) {
+        console.error('Erro ao salvar marcas:', error);
+        alert('Erro ao salvar marcas/fabricantes. Por favor, tente novamente.');
+    }
+}
+
+// Carregar marcas do localStorage
+function loadBrandsFromStorage() {
+    try {
+        const stored = localStorage.getItem('brands');
+        if (stored) {
+            brands = JSON.parse(stored);
+        }
+    } catch (error) {
+        console.error('Erro ao carregar marcas:', error);
+        brands = [];
+    }
+}
+
+// Mostrar lista de marcas
+function showBrandsListView() {
+    document.getElementById('brands-list-view').classList.add('active');
+    document.getElementById('brands-register-view').classList.remove('active');
+    loadBrands();
+}
+
+// Mostrar formulário de cadastro
+function showBrandsRegisterView() {
+    // SEMPRE limpar variáveis de edição ao abrir para cadastro
+    editingBrandId = null;
+    document.getElementById('brand-id').value = '';
+    
+    document.getElementById('brands-list-view').classList.remove('active');
+    document.getElementById('brands-register-view').classList.add('active');
+    resetBrandForm();
+    document.getElementById('brand-form-title').textContent = 'Cadastrar Marca/Fabricante';
+}
+
+// Resetar formulário
+function resetBrandForm() {
+    document.getElementById('brand-id').value = '';
+    document.getElementById('brand-nome-completo').value = '';
+    document.getElementById('brand-nome-fantasia').value = '';
+    document.getElementById('brand-tipo-pessoa').value = '';
+    document.getElementById('brand-identificador-fiscal').value = '';
+    document.getElementById('brand-telefone-principal').value = '';
+    document.getElementById('brand-email-principal').value = '';
+    document.getElementById('brand-site-oficial').value = '';
+    document.getElementById('brand-endereco-completo').value = '';
+    document.getElementById('brand-cidade-estado-cep').value = '';
+    document.getElementById('brand-contato-chave').value = '';
+    document.getElementById('brand-condicoes-pagamento').value = '';
+    document.getElementById('brand-prazo-entrega').value = '';
+    document.getElementById('brand-status-ativo').checked = true;
+}
+
+// Carregar e exibir marcas
+function loadBrands() {
+    const container = document.getElementById('brands-list');
+    if (!container) return;
+    
+    loadBrandsFromStorage();
+    
+    // Aplicar filtros
+    let filteredBrands = brands;
+    
+    // Filtro de pesquisa
+    const searchInput = document.getElementById('brand-search-input');
+    if (searchInput && searchInput.value.trim()) {
+        const searchTerm = normalizeText(searchInput.value);
+        filteredBrands = filteredBrands.filter(brand => 
+            normalizeText(brand.nome_completo).includes(searchTerm) ||
+            normalizeText(brand.nome_fantasia).includes(searchTerm)
+        );
+    }
+    
+    // Limpar container
+    container.innerHTML = '';
+    
+    if (filteredBrands.length === 0) {
+        container.innerHTML = '<p style="text-align: center; color: #999; padding: 20px;">Nenhuma marca/fabricante cadastrada.</p>';
+        return;
+    }
+    
+    // Criar cards
+    filteredBrands.forEach(brand => {
+        const card = createBrandCard(brand);
+        container.appendChild(card);
+    });
+}
+
+// Criar card de marca/fabricante
+function createBrandCard(brand) {
+    const card = document.createElement('div');
+    card.className = 'client-card';
+    card.onclick = () => editBrandFromCard(brand.id);
+    
+    // Formatar identificador fiscal
+    let identificadorHtml = '';
+    if (brand.tipo_pessoa && brand.identificador_fiscal) {
+        let formattedId = brand.identificador_fiscal;
+        
+        // Formatar CNPJ
+        if (brand.tipo_pessoa === 'CNPJ' && formattedId.length === 14) {
+            formattedId = formattedId.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
+        }
+        // Formatar CPF
+        else if (brand.tipo_pessoa === 'CPF' && formattedId.length === 11) {
+            formattedId = formattedId.replace(/^(\d{3})(\d{3})(\d{3})(\d{2})$/, '$1.$2.$3-$4');
+        }
+        
+        identificadorHtml = `<div class="client-info"><strong>${brand.tipo_pessoa}:</strong> ${formattedId}</div>`;
+    }
+    
+    // Link do site oficial
+    let siteHtml = '';
+    if (brand.site_oficial) {
+        let siteUrl = brand.site_oficial.trim();
+        // Adicionar https:// se não tiver protocolo
+        if (siteUrl && !siteUrl.match(/^https?:\/\//)) {
+            siteUrl = 'https://' + siteUrl;
+        }
+        siteHtml = `<div class="client-info">
+            <a href="${siteUrl}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()" style="color: #66e8ea; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+                🌐 Site Oficial
+            </a>
+        </div>`;
+    }
+    
+    const telefoneHtml = brand.telefone_principal 
+        ? `<div class="client-info"><strong>Telefone:</strong> ${brand.telefone_principal}</div>`
+        : '';
+    
+    const statusBadge = brand.status_ativo !== false 
+        ? '<span class="category-badge" style="background: #4caf50;">Ativo</span>'
+        : '<span class="category-badge" style="background: #f44336;">Inativo</span>';
+    
+    card.innerHTML = `
+        <div class="client-card-header">
+            <h3>${brand.nome_completo} ${statusBadge}</h3>
+        </div>
+        ${identificadorHtml}
+        ${telefoneHtml}
+        ${siteHtml}
+        <div class="client-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-edit" onclick="editBrandFromCard('${brand.id}')">✏️ Editar</button>
+            <button class="btn btn-delete" onclick="deleteBrandFromCard('${brand.id}')">🗑️ Excluir</button>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Editar marca a partir do card
+function editBrandFromCard(id) {
+    const brand = brands.find(b => b.id == id);
+    if (!brand) return;
+    
+    // Definir que está editando ANTES de mostrar a view
+    editingBrandId = id;
+    document.getElementById('brand-id').value = brand.id;
+    
+    // Mostrar view sem limpar (não chamar showBrandsRegisterView que limpa tudo)
+    document.getElementById('brands-list-view').classList.remove('active');
+    document.getElementById('brands-register-view').classList.add('active');
+    
+    // Preencher formulário
+    document.getElementById('brand-form-title').textContent = 'Editar Marca/Fabricante';
+    document.getElementById('brand-nome-completo').value = brand.nome_completo || '';
+    document.getElementById('brand-nome-fantasia').value = brand.nome_fantasia || '';
+    document.getElementById('brand-tipo-pessoa').value = brand.tipo_pessoa || '';
+    document.getElementById('brand-identificador-fiscal').value = brand.identificador_fiscal || '';
+    document.getElementById('brand-telefone-principal').value = brand.telefone_principal || '';
+    document.getElementById('brand-email-principal').value = brand.email_principal || '';
+    document.getElementById('brand-site-oficial').value = brand.site_oficial || '';
+    document.getElementById('brand-endereco-completo').value = brand.endereco_completo || '';
+    document.getElementById('brand-cidade-estado-cep').value = brand.cidade_estado_cep || '';
+    document.getElementById('brand-contato-chave').value = brand.contato_chave || '';
+    document.getElementById('brand-condicoes-pagamento').value = brand.condicoes_pagamento || '';
+    document.getElementById('brand-prazo-entrega').value = brand.prazo_entrega || '';
+    document.getElementById('brand-status-ativo').checked = brand.status_ativo !== false;
+}
+
+// Excluir marca a partir do card
+function deleteBrandFromCard(id) {
+    if (!confirm('Tem certeza que deseja excluir esta marca/fabricante?')) return;
+    
+    // Verificar se há produtos usando esta marca
+    const productsUsingBrand = products.filter(p => p.brandId == id || (p.marca && brands.find(b => b.id == id && b.nome_completo === p.marca)));
+    if (productsUsingBrand.length > 0) {
+        if (!confirm(`Esta marca está sendo usada por ${productsUsingBrand.length} produto(s). Deseja realmente excluir? Os produtos ficarão sem marca.`)) {
+            return;
+        }
+    }
+    
+    const index = brands.findIndex(b => b.id == id);
+    if (index !== -1) {
+        brands.splice(index, 1);
+        saveBrands();
+        loadBrands();
+        updateInventoryBrandsCount();
+        alert('Marca/fabricante excluída com sucesso!');
+    }
+}
+
+// Pesquisar marcas
+function searchBrands() {
+    loadBrands();
+}
+
+// Salvar marca (criar ou editar)
+function saveBrand() {
+    const idInput = document.getElementById('brand-id');
+    const id = idInput ? idInput.value : '';
+    const nomeCompleto = document.getElementById('brand-nome-completo').value.trim();
+    
+    if (!nomeCompleto) {
+        alert('Por favor, informe o nome completo da marca/fabricante.');
+        return;
+    }
+    
+    // Verificar duplicatas (exceto a atual)
+    const existingBrand = brands.find(b => 
+        b.nome_completo.toLowerCase() === nomeCompleto.toLowerCase() && 
+        (!id || b.id != id)
+    );
+    
+    if (existingBrand) {
+        alert('Já existe uma marca/fabricante com este nome.');
+        return;
+    }
+    
+    // Processar site oficial (remover http:// ou https://)
+    let siteOficial = document.getElementById('brand-site-oficial').value.trim();
+    if (siteOficial) {
+        siteOficial = siteOficial.replace(/^https?:\/\//, '').replace(/^www\./, '');
+    }
+    
+    const brandData = {
+        nome_completo: nomeCompleto,
+        nome_fantasia: document.getElementById('brand-nome-fantasia').value.trim(),
+        tipo_pessoa: document.getElementById('brand-tipo-pessoa').value,
+        identificador_fiscal: document.getElementById('brand-identificador-fiscal').value.trim(),
+        telefone_principal: document.getElementById('brand-telefone-principal').value.trim(),
+        email_principal: document.getElementById('brand-email-principal').value.trim(),
+        site_oficial: siteOficial,
+        endereco_completo: document.getElementById('brand-endereco-completo').value.trim(),
+        cidade_estado_cep: document.getElementById('brand-cidade-estado-cep').value.trim(),
+        contato_chave: document.getElementById('brand-contato-chave').value.trim(),
+        condicoes_pagamento: document.getElementById('brand-condicoes-pagamento').value.trim(),
+        prazo_entrega: document.getElementById('brand-prazo-entrega').value.trim(),
+        status_ativo: document.getElementById('brand-status-ativo').checked,
+        updatedAt: new Date().toISOString()
+    };
+    
+    if (id && editingBrandId) {
+        // Editar existente
+        const index = brands.findIndex(b => b.id == id);
+        if (index !== -1) {
+            brandData.id = brands[index].id;
+            brandData.createdAt = brands[index].createdAt || new Date().toISOString();
+            brands[index] = brandData;
+        }
+    } else {
+        // Criar novo
+        brandData.id = Date.now();
+        brandData.createdAt = new Date().toISOString();
+        brands.push(brandData);
+    }
+    
+    saveBrands();
+    loadBrands();
+    updateInventoryBrandsCount();
+    
+    // Limpar TUDO após salvar para garantir que próximo cadastro seja novo
+    editingBrandId = null;
+    document.getElementById('brand-id').value = '';
+    document.getElementById('brand-form').reset();
+    document.getElementById('brand-form-title').textContent = 'Cadastrar Marca/Fabricante';
+    document.getElementById('brand-status-ativo').checked = true;
+    
+    alert(id ? 'Marca/fabricante atualizada com sucesso!' : 'Marca/fabricante cadastrada com sucesso!');
+    
+    showBrandsListView();
+}
+
+// Mostrar lista de produtos
+function showProductsListView() {
+    const listView = document.getElementById('products-list-view');
+    const registerView = document.getElementById('products-register-view');
+    if (listView) listView.classList.add('active');
+    if (registerView) registerView.classList.remove('active');
+    loadProducts();
+}
+
+// Mostrar formulário de cadastro/edição
+function showProductsRegisterView() {
+    // SEMPRE limpar variáveis de edição ao abrir para cadastro
+    editingProductId = null;
+    document.getElementById('product-id').value = '';
+    
+    const listView = document.getElementById('products-list-view');
+    const registerView = document.getElementById('products-register-view');
+    if (listView) listView.classList.remove('active');
+    if (registerView) registerView.classList.add('active');
+    
+    // Sempre resetar o formulário para garantir que é um novo cadastro
+    resetProductForm();
+    document.getElementById('product-form-title').textContent = 'Cadastrar Novo Produto';
+}
+
+// Resetar formulário de produto
+function resetProductForm() {
+    document.getElementById('product-form').reset();
+    populateProductCategorySelect();
+    document.getElementById('product-category-other-group').style.display = 'none';
+    document.getElementById('product-id').value = '';
+    document.getElementById('product-form-title').textContent = 'Cadastrar Novo Produto';
+    document.getElementById('product-image-preview').style.display = 'none';
+    document.getElementById('remove-product-image-btn').style.display = 'none';
+    editingProductId = null;
+    
+    // Resetar select de marca
+    populateProductBrandSelect();
+    document.getElementById('product-brand').value = '';
+    document.getElementById('product-brand-other-group').style.display = 'none';
+    
+    // Resetar select de categoria
+    populateProductCategorySelect();
+    document.getElementById('product-category').value = '';
+    document.getElementById('product-category-other-group').style.display = 'none';
+    
+    // Resetar select de fornecedor
+    populateProductSupplierSelect();
+    document.getElementById('product-supplier').value = '';
+    document.getElementById('product-supplier-other-group').style.display = 'none';
+}
+
+// Carregar e exibir produtos
+function loadProducts() {
+    const container = document.getElementById('products-list');
+    if (!container) return;
+    
+    loadProductsFromStorage();
+    
+    // Aplicar filtros
+    let filteredProducts = products;
+    
+    // Filtro de pesquisa
+    const searchQuery = document.getElementById('product-search-input')?.value.toLowerCase() || '';
+    if (searchQuery) {
+        filteredProducts = filteredProducts.filter(p => 
+            p.nome.toLowerCase().includes(searchQuery)
+        );
+    }
+    
+    // Filtro de categoria
+    const categoryFilter = document.getElementById('product-category-filter')?.value || '';
+    if (categoryFilter) {
+        filteredProducts = filteredProducts.filter(p => p.categoria === categoryFilter);
+    }
+    
+    // Limpar container
+    container.innerHTML = '';
+    
+    if (filteredProducts.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>Nenhum produto cadastrado</h3>
+                <p>Comece cadastrando seu primeiro produto!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Popular filtro de categorias
+    populateCategoryFilter();
+    
+    // Criar cards
+    filteredProducts.forEach(product => {
+        const card = createProductCard(product);
+        container.appendChild(card);
+    });
+}
+
+// Criar card de produto
+function createProductCard(product) {
+    const card = document.createElement('div');
+    card.className = 'client-card';
+    card.onclick = () => editProductFromCard(product.id);
+    
+    const photoHtml = product.imagem 
+        ? `<img src="${product.imagem}" alt="${product.nome}" class="client-photo" style="max-width: 100px; max-height: 100px; object-fit: cover;">`
+        : '<div class="client-photo" style="background: #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999; font-size: 24px; width: 100px; height: 100px;">📦</div>';
+    
+    const costHtml = product.custo 
+        ? `<div class="client-info"><strong>Custo:</strong> ${formatCurrency(product.custo)}</div>`
+        : '<div class="client-info"><strong>Custo:</strong> Não informado</div>';
+    
+    const stockClass = product.quantidadeEstoque < 10 ? 'low-stock' : '';
+    const categoryBadge = product.categoria && product.categoria !== 'Diversos'
+        ? `<span class="category-badge">${product.categoria}</span>`
+        : '';
+    
+    card.innerHTML = `
+        <div class="client-card-header">
+            ${photoHtml}
+            <h3>${product.nome} ${categoryBadge}</h3>
+        </div>
+        ${costHtml}
+        <div class="client-info"><strong>Venda:</strong> ${formatCurrency(product.precoVenda)}</div>
+        <div class="client-info ${stockClass}"><strong>Estoque:</strong> ${product.quantidadeEstoque || 0} unidades</div>
+        <div class="client-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-edit" onclick="editProductFromCard('${product.id}')">✏️ Editar</button>
+            <button class="btn btn-delete" onclick="deleteProductFromCard('${product.id}')">🗑️ Excluir</button>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Popular filtro de categorias
+function populateCategoryFilter() {
+    const filter = document.getElementById('product-category-filter');
+    if (!filter) return;
+    
+    const currentValue = filter.value;
+    const categories = [...new Set(products.map(p => p.categoria || 'Diversos'))].sort();
+    
+    filter.innerHTML = '<option value="">Todas as Categorias</option>';
+    categories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = cat;
+        filter.appendChild(option);
+    });
+    
+    if (currentValue) {
+        filter.value = currentValue;
+    }
+}
+
+// Pesquisar produtos
+function searchProducts() {
+    loadProducts();
+}
+
+// Filtrar produtos por categoria
+function filterProductsByCategory() {
+    loadProducts();
+}
+
+// Abrir modal de detalhes do produto
+function openProductDetailsModal(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    selectedProductId = productId;
+    
+    document.getElementById('product-details-name').textContent = product.nome;
+    
+    const imagePreview = document.getElementById('product-details-image');
+    const imagePlaceholder = document.getElementById('product-details-image-placeholder');
+    const changeBtn = document.getElementById('change-product-image-btn');
+    const removeBtn = document.getElementById('remove-product-image-modal-btn');
+    
+    if (product.imagem) {
+        imagePreview.src = product.imagem;
+        imagePreview.style.display = 'block';
+        imagePlaceholder.style.display = 'none';
+        changeBtn.style.display = 'block';
+        removeBtn.style.display = 'block';
+    } else {
+        imagePreview.style.display = 'none';
+        imagePlaceholder.style.display = 'flex';
+        changeBtn.style.display = 'none';
+        removeBtn.style.display = 'none';
+    }
+    
+    document.getElementById('product-details-modal').style.display = 'block';
+}
+
+// Fechar modal de detalhes
+function closeProductDetailsModal() {
+    document.getElementById('product-details-modal').style.display = 'none';
+    selectedProductId = null;
+}
+
+// Editar produto a partir do modal
+function editProductFromModal() {
+    if (!selectedProductId) return;
+    
+    closeProductDetailsModal();
+    openEditProductModal(selectedProductId);
+}
+
+// Abrir modal de edição
+function openEditProductModal(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    editingProductId = productId;
+    document.getElementById('product-id').value = product.id;
+    
+    // Preencher formulário
+    document.getElementById('product-name').value = product.nome || '';
+    document.getElementById('product-sku').value = product.sku || '';
+    document.getElementById('product-barcode').value = product.codigoBarras || '';
+    document.getElementById('product-cost').value = product.custo || '';
+    document.getElementById('product-sale-price').value = product.precoVenda || '';
+    document.getElementById('product-ncm').value = product.ncm || '';
+    document.getElementById('product-stock').value = product.quantidadeEstoque || 0;
+    document.getElementById('product-weight').value = product.peso || '';
+    document.getElementById('product-height').value = product.altura || '';
+    document.getElementById('product-width').value = product.largura || '';
+    document.getElementById('product-length').value = product.comprimento || '';
+    document.getElementById('product-description').value = product.descricao || '';
+    // Popular select de categorias antes de definir valor
+    populateProductCategorySelect();
+    
+    // Popular select de fornecedores antes de definir valor
+    populateProductSupplierSelect();
+    
+    // Definir categoria do produto
+    if (product.categoryId) {
+        // Buscar categoria pelo ID
+        const category = categories.find(c => c.id == product.categoryId);
+        if (category) {
+            document.getElementById('product-category').value = category.nome_categoria;
+        } else {
+            document.getElementById('product-category').value = product.categoria || 'Diversos';
+        }
+    } else {
+        document.getElementById('product-category').value = product.categoria || 'Diversos';
+    }
+    
+    // Verificar se precisa mostrar campo "Outras"
+    if (product.categoria && !document.querySelector(`#product-category option[value="${product.categoria}"]`)) {
+        document.getElementById('product-category').value = 'Outras';
+        document.getElementById('product-category-other').value = product.categoria;
+        document.getElementById('product-category-other-group').style.display = 'block';
+    }
+    
+    // Popular select de marcas antes de definir valor
+    populateProductBrandSelect();
+    
+    // Definir marca do produto
+    if (product.brandId) {
+        // Buscar marca pelo ID
+        const brand = brands.find(b => b.id == product.brandId);
+        if (brand) {
+            document.getElementById('product-brand').value = brand.nome_completo;
+        } else {
+            document.getElementById('product-brand').value = product.marca || '';
+        }
+    } else {
+        document.getElementById('product-brand').value = product.marca || '';
+    }
+    
+    // Verificar se precisa mostrar campo "Outras"
+    if (product.marca && !document.querySelector(`#product-brand option[value="${product.marca}"]`)) {
+        document.getElementById('product-brand').value = 'Outras';
+        document.getElementById('product-brand-other').value = product.marca;
+        document.getElementById('product-brand-other-group').style.display = 'block';
+    }
+    
+    // Imagem
+    const preview = document.getElementById('product-image-preview');
+    const removeBtn = document.getElementById('remove-product-image-btn');
+    if (product.imagem) {
+        preview.src = product.imagem;
+        preview.style.display = 'block';
+        removeBtn.style.display = 'block';
+    } else {
+        preview.style.display = 'none';
+        removeBtn.style.display = 'none';
+    }
+    
+    // Verificar se marca é "Outras"
+    if (product.marca && !document.querySelector(`#product-brand option[value="${product.marca}"]`)) {
+        document.getElementById('product-brand').value = 'Outras';
+        document.getElementById('product-brand-other').value = product.marca;
+        document.getElementById('product-brand-other-group').style.display = 'block';
+    }
+    
+    // Definir fornecedor do produto
+    if (product.supplierId) {
+        // Buscar fornecedor pelo ID
+        const supplier = suppliers.find(s => s.id == product.supplierId);
+        if (supplier) {
+            const displayName = supplier.nome || supplier.nomeFantasia || '';
+            document.getElementById('product-supplier').value = displayName;
+        } else {
+            // Se não encontrar pelo ID, tentar pelo nome
+            if (product.fornecedor) {
+                const supplierOption = document.querySelector(`#product-supplier option[value="${product.fornecedor}"]`);
+                if (supplierOption) {
+                    document.getElementById('product-supplier').value = product.fornecedor;
+                } else {
+                    // Se não encontrar, usar "Outro (Novo Fornecedor)"
+                    document.getElementById('product-supplier').value = 'Outro (Novo Fornecedor)';
+                    document.getElementById('product-supplier-other').value = product.fornecedor;
+                    document.getElementById('product-supplier-other-group').style.display = 'block';
+                }
+            }
+        }
+    } else if (product.fornecedor) {
+        const supplierOption = document.querySelector(`#product-supplier option[value="${product.fornecedor}"]`);
+        if (supplierOption) {
+            document.getElementById('product-supplier').value = product.fornecedor;
+        } else {
+            // Se não encontrar, usar "Outro (Novo Fornecedor)"
+            document.getElementById('product-supplier').value = 'Outro (Novo Fornecedor)';
+            document.getElementById('product-supplier-other').value = product.fornecedor;
+            document.getElementById('product-supplier-other-group').style.display = 'block';
+        }
+    }
+    
+    // Garantir que estamos na seção de inventário
+    const inventorySection = document.getElementById('inventory');
+    if (!inventorySection || !inventorySection.classList.contains('active')) {
+        // Navegar para a seção de inventário primeiro
+        showSection('inventory');
+    }
+    
+    // Garantir que estamos na view de produtos do inventário
+    const inventoryProductsView = document.getElementById('inventory-products-view');
+    if (!inventoryProductsView || !inventoryProductsView.classList.contains('active')) {
+        // Se não estiver na view de produtos, mudar para ela primeiro
+        showInventoryView('products');
+        // Aguardar um pouco para garantir que a view foi carregada
+        setTimeout(() => {
+            // Mostrar view sem limpar (não chamar showProductsRegisterView que limpa tudo)
+            document.getElementById('products-list-view').classList.remove('active');
+            document.getElementById('products-register-view').classList.add('active');
+            document.getElementById('product-form-title').textContent = 'Editar Produto';
+        }, 200);
+    } else {
+        // Já está na view correta, apenas mostrar o formulário sem limpar
+        document.getElementById('products-list-view').classList.remove('active');
+        document.getElementById('products-register-view').classList.add('active');
+        document.getElementById('product-form-title').textContent = 'Editar Produto';
+    }
+}
+
+// Alterar quantidade em estoque a partir do modal
+function alterProductStockFromModal() {
+    if (!selectedProductId) return;
+    
+    const product = products.find(p => p.id === selectedProductId);
+    if (!product) return;
+    
+    document.getElementById('product-stock-id').value = selectedProductId;
+    document.getElementById('product-stock-current').value = product.quantidadeEstoque || 0;
+    document.getElementById('product-stock-new').value = product.quantidadeEstoque || 0;
+    
+    document.getElementById('product-stock-modal').style.display = 'block';
+}
+
+// Fechar modal de estoque
+function closeProductStockModal() {
+    document.getElementById('product-stock-modal').style.display = 'none';
+    document.getElementById('product-stock-form').reset();
+}
+
+// Excluir produto a partir do modal
+function deleteProductFromModal() {
+    if (!selectedProductId) return;
+    
+    if (confirm('Tem certeza que deseja excluir este produto?')) {
+        deleteProduct(selectedProductId);
+        closeProductDetailsModal();
+    }
+}
+
+// Excluir produto
+function deleteProduct(productId) {
+    products = products.filter(p => p.id !== productId);
+    saveProducts();
+    updateInventoryProductsCount(); // Atualizar contador no botão
+    autoSave(); // Salvamento automático
+    loadProducts();
+    
+    // Adicionar log
+    addSystemLog('delete_product', `Produto excluído: ${productId}`, currentUser ? currentUser.username : 'Sistema');
+    
+    alert('Produto excluído com sucesso!');
+}
+
+// Processar formulário de produto
+function handleProductSubmit(event) {
+    event.preventDefault();
+    
+    const productId = document.getElementById('product-id').value;
+    const isEditing = !!productId;
+    
+    // Validar campos obrigatórios
+    const nome = document.getElementById('product-name').value.trim();
+    const precoVenda = parseFloat(document.getElementById('product-sale-price').value);
+    const codigoBarras = document.getElementById('product-barcode').value.trim();
+    const quantidadeEstoqueInput = document.getElementById('product-stock').value;
+    const quantidadeEstoque = quantidadeEstoqueInput !== '' ? parseInt(quantidadeEstoqueInput) : null;
+    const fornecedor = document.getElementById('product-supplier').value;
+    
+    if (!nome) {
+        alert('Por favor, preencha o nome do produto.');
+        return;
+    }
+    
+    if (!precoVenda || precoVenda <= 0) {
+        alert('Por favor, informe um preço de venda válido maior que zero.');
+        return;
+    }
+    
+    if (!codigoBarras) {
+        alert('Por favor, preencha o código de barras (EAN/UPC).');
+        return;
+    }
+    
+    if (quantidadeEstoque === null || quantidadeEstoque < 0) {
+        alert('Por favor, informe a quantidade em estoque (valor maior ou igual a zero).');
+        return;
+    }
+    
+    if (!fornecedor) {
+        alert('Por favor, selecione um fornecedor.');
+        return;
+    }
+    
+    // Obter valores
+    const sku = document.getElementById('product-sku').value.trim();
+    const custo = document.getElementById('product-cost').value ? parseFloat(document.getElementById('product-cost').value) : null;
+    const ncm = document.getElementById('product-ncm').value.trim();
+    const peso = document.getElementById('product-weight').value ? parseFloat(document.getElementById('product-weight').value) : null;
+    const altura = document.getElementById('product-height').value ? parseFloat(document.getElementById('product-height').value) : null;
+    const largura = document.getElementById('product-width').value ? parseFloat(document.getElementById('product-width').value) : null;
+    const comprimento = document.getElementById('product-length').value ? parseFloat(document.getElementById('product-length').value) : null;
+    const descricao = document.getElementById('product-description').value.trim();
+    let categoria = document.getElementById('product-category').value || 'Diversos';
+    let categoryId = null;
+    let marca = document.getElementById('product-brand').value || '';
+    let brandId = null;
+    
+    // Se categoria for "Outras", pegar do campo de texto e criar automaticamente
+    if (categoria === 'Outras') {
+        categoria = document.getElementById('product-category-other').value.trim() || 'Diversos';
+        if (categoria && categoria !== 'Diversos') {
+            // Verificar se a categoria já existe
+            loadCategoriesFromStorage();
+            let existingCategory = categories.find(c => c.nome_categoria.toLowerCase() === categoria.toLowerCase());
+            
+            if (!existingCategory) {
+                // Criar nova categoria automaticamente
+                const newCategory = {
+                    id: Date.now(),
+                    nome_categoria: categoria,
+                    categoria_pai_id: null,
+                    descricao: '',
+                    status_ativo: true,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                categories.push(newCategory);
+                saveCategories();
+                updateInventoryCategoriesCount();
+                existingCategory = newCategory;
+            }
+            
+            categoryId = existingCategory.id;
+        }
+    } else if (categoria) {
+        // Buscar ID da categoria selecionada
+        const categorySelect = document.getElementById('product-category');
+        const selectedOption = categorySelect.querySelector(`option[value="${categoria}"]`);
+        if (selectedOption && selectedOption.dataset.categoryId) {
+            categoryId = parseFloat(selectedOption.dataset.categoryId);
+        }
+    }
+    
+    if (!categoria || categoria === '') {
+        categoria = 'Diversos';
+    }
+    
+    // Se marca for "Outras", pegar do campo de texto e criar automaticamente
+    if (marca === 'Outras') {
+        marca = document.getElementById('product-brand-other').value.trim() || '';
+        if (marca) {
+            // Verificar se a marca já existe
+            loadBrandsFromStorage();
+            let existingBrand = brands.find(b => b.nome_completo.toLowerCase() === marca.toLowerCase());
+            
+            if (!existingBrand) {
+                // Criar nova marca automaticamente
+                const newBrand = {
+                    id: Date.now(),
+                    nome_completo: marca,
+                    nome_fantasia: '',
+                    tipo_pessoa: '',
+                    identificador_fiscal: '',
+                    telefone_principal: '',
+                    email_principal: '',
+                    site_oficial: '',
+                    endereco_completo: '',
+                    cidade_estado_cep: '',
+                    contato_chave: '',
+                    condicoes_pagamento: '',
+                    prazo_entrega: '',
+                    status_ativo: true,
+                    createdAt: new Date().toISOString(),
+                    updatedAt: new Date().toISOString()
+                };
+                brands.push(newBrand);
+                saveBrands();
+                updateInventoryBrandsCount();
+                existingBrand = newBrand;
+            }
+            
+            brandId = existingBrand.id;
+        }
+    } else if (marca) {
+        // Buscar ID da marca selecionada
+        const brandSelect = document.getElementById('product-brand');
+        const selectedOption = brandSelect.querySelector(`option[value="${marca}"]`);
+        if (selectedOption && selectedOption.dataset.brandId) {
+            brandId = parseFloat(selectedOption.dataset.brandId);
+        }
+    }
+    
+    // Processar fornecedor
+    let fornecedorNome = fornecedor;
+    let supplierId = null;
+    
+    // Se fornecedor for "Outro (Novo Fornecedor)", pegar do campo de texto e criar automaticamente
+    if (fornecedor === 'Outro (Novo Fornecedor)') {
+        fornecedorNome = document.getElementById('product-supplier-other').value.trim();
+        if (!fornecedorNome) {
+            alert('Por favor, informe o nome do novo fornecedor.');
+            return;
+        }
+        
+        // Verificar se o fornecedor já existe
+        loadSuppliersFromStorage();
+        let existingSupplier = suppliers.find(s => {
+            const nome = s.nome || s.nomeFantasia || '';
+            return nome.toLowerCase() === fornecedorNome.toLowerCase();
+        });
+        
+        if (!existingSupplier) {
+            // Criar novo fornecedor automaticamente
+            const newSupplier = {
+                id: generateSupplierId(),
+                nome: fornecedorNome,
+                nomeFantasia: fornecedorNome,
+                tipoPessoa: '',
+                documento: '',
+                inscricaoEstadual: '',
+                telefone: '',
+                email: '',
+                cep: '',
+                endereco: '',
+                cidade: '',
+                estado: '',
+                banco: '',
+                agencia: '',
+                conta: '',
+                pix: '',
+                condicoesPagamento: '',
+                categoria: '',
+                situacao: 'Ativo',
+                observacoes: '',
+                logo: '',
+                createdAt: new Date().toISOString(),
+                updatedAt: new Date().toISOString()
+            };
+            suppliers.push(newSupplier);
+            saveSuppliers();
+            updateInventorySuppliersCount();
+            existingSupplier = newSupplier;
+        }
+        
+        supplierId = existingSupplier.id;
+        fornecedorNome = existingSupplier.nome || existingSupplier.nomeFantasia || fornecedorNome;
+    } else if (fornecedor) {
+        // Buscar ID do fornecedor selecionado
+        const supplierSelect = document.getElementById('product-supplier');
+        const selectedOption = supplierSelect.querySelector(`option[value="${fornecedor}"]`);
+        if (selectedOption && selectedOption.dataset.supplierId) {
+            supplierId = parseFloat(selectedOption.dataset.supplierId);
+        }
+    }
+    
+    // Obter imagem (se houver preview)
+    const imagePreview = document.getElementById('product-image-preview');
+    const imagem = imagePreview.style.display !== 'none' ? imagePreview.src : '';
+    
+    const productData = {
+        id: isEditing ? productId : generateProductId(),
+        nome,
+        sku: sku || '',
+        codigoBarras: codigoBarras || '',
+        custo: custo || null,
+        precoVenda,
+        ncm: ncm || '',
+        quantidadeEstoque,
+        peso: peso || null,
+        altura: altura || null,
+        largura: largura || null,
+        comprimento: comprimento || null,
+        descricao: descricao || '',
+        imagem: imagem || '',
+        categoria,
+        categoryId: categoryId || null,
+        marca: marca || '',
+        brandId: brandId || null,
+        fornecedor: fornecedorNome || '',
+        supplierId: supplierId || null,
+        updatedAt: new Date().toISOString()
+    };
+    
+    if (!isEditing) {
+        productData.createdAt = new Date().toISOString();
+    } else {
+        // Manter createdAt original
+        const existingProduct = products.find(p => p.id === productId);
+        if (existingProduct) {
+            productData.createdAt = existingProduct.createdAt;
+        } else {
+            productData.createdAt = new Date().toISOString();
+        }
+    }
+    
+    // Salvar produto
+    if (isEditing) {
+        const index = products.findIndex(p => p.id === productId);
+        if (index !== -1) {
+            products[index] = productData;
+        }
+        addSystemLog('edit_product', `Produto editado: ${nome}`, currentUser ? currentUser.username : 'Sistema');
+    } else {
+        products.push(productData);
+        addSystemLog('create_product', `Produto criado: ${nome}`, currentUser ? currentUser.username : 'Sistema');
+    }
+    
+    saveProducts();
+    updateInventoryProductsCount(); // Atualizar contador no botão
+    autoSave(); // Salvamento automático
+    
+    // Limpar TUDO após salvar para garantir que próximo cadastro seja novo
+    editingProductId = null;
+    document.getElementById('product-id').value = '';
+    document.getElementById('product-form').reset();
+    document.getElementById('product-form-title').textContent = 'Cadastrar Novo Produto';
+    document.getElementById('product-image-preview').style.display = 'none';
+    document.getElementById('remove-product-image-btn').style.display = 'none';
+    document.getElementById('product-brand-other-group').style.display = 'none';
+    document.getElementById('product-category-other-group').style.display = 'none';
+    
+    // Popular selects novamente
+    populateProductBrandSelect();
+    populateProductCategorySelect();
+    
+    showProductsListView();
+    loadProducts();
+    
+    alert(isEditing ? 'Produto atualizado com sucesso!' : 'Produto cadastrado com sucesso!');
+    
+    // Atualizar card de alerta de estoque crítico se estiver na tela inicial
+    if (document.getElementById('home') && document.getElementById('home').classList.contains('active')) {
+        loadCriticalStockAlert();
+    }
+}
+
+// Alterar quantidade em estoque
+function alterProductStock(productId) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    document.getElementById('product-stock-id').value = productId;
+    document.getElementById('product-stock-current').value = product.quantidadeEstoque || 0;
+    document.getElementById('product-stock-new').value = product.quantidadeEstoque || 0;
+    
+    document.getElementById('product-stock-modal').style.display = 'block';
+}
+
+// Processar alteração de estoque
+function handleProductStockSubmit(event) {
+    event.preventDefault();
+    
+    const productId = document.getElementById('product-stock-id').value;
+    const newStock = parseInt(document.getElementById('product-stock-new').value);
+    
+    if (isNaN(newStock) || newStock < 0) {
+        alert('Por favor, informe uma quantidade válida (número inteiro maior ou igual a zero).');
+        return;
+    }
+    
+    const product = products.find(p => p.id === productId);
+    if (!product) {
+        alert('Produto não encontrado.');
+        return;
+    }
+    
+    const oldStock = product.quantidadeEstoque || 0;
+    product.quantidadeEstoque = newStock;
+    product.updatedAt = new Date().toISOString();
+    
+    saveProducts();
+    autoSave(); // Salvamento automático
+    closeProductStockModal();
+    loadProducts();
+    
+    // Adicionar log
+    addSystemLog('update_product_stock', `Estoque alterado: ${product.nome} (${oldStock} → ${newStock})`, currentUser ? currentUser.username : 'Sistema');
+    
+    alert('Quantidade em estoque atualizada com sucesso!');
+    
+    // Atualizar card de alerta de estoque crítico se estiver na tela inicial
+    if (document.getElementById('home') && document.getElementById('home').classList.contains('active')) {
+        loadCriticalStockAlert();
+    }
+}
+
+// ==================== ALERTA DE ESTOQUE CRÍTICO ====================
+
+// Carregar alerta de estoque crítico na tela inicial
+function loadCriticalStockAlert() {
+    const container = document.getElementById('critical-stock-alert-container');
+    const productsList = document.getElementById('critical-stock-products-list');
+    
+    if (!container || !productsList) return;
+    
+    // Garantir que os produtos estejam carregados
+    if (!products || products.length === 0) {
+        loadProductsFromStorage();
+    }
+    
+    // Obter configurações de regras
+    const settings = getStockVisibilitySettings();
+    
+    // Agrupar produtos por regra
+    const productsByRule = {
+        rule1: [], // Estoque <= 0 (fixa, sempre ativa)
+        rule2: [], // Configurável 1
+        rule3: []  // Configurável 2
+    };
+    
+    products.forEach(product => {
+        const stock = product.quantidadeEstoque || 0;
+        
+        // Regra 1: Estoque <= 0 (sempre verificar, tem prioridade)
+        if (stock <= 0) {
+            productsByRule.rule1.push(product);
+            return; // Não verificar outras regras para este produto
+        }
+        
+        // Regra 2: Se ativada e estoque <= limite
+        if (settings.rule2.enabled && stock > 0 && stock <= settings.rule2.limit) {
+            productsByRule.rule2.push(product);
+            return; // Não verificar regra 3 para este produto
+        }
+        
+        // Regra 3: Se ativada e estoque <= limite (e não está na regra 2)
+        if (settings.rule3.enabled && stock > 0 && stock <= settings.rule3.limit) {
+            // Só incluir se não está na regra 2
+            if (!settings.rule2.enabled || stock > settings.rule2.limit) {
+                productsByRule.rule3.push(product);
+            }
+        }
+    });
+    
+    // Verificar se há produtos em alguma regra
+    const hasProducts = productsByRule.rule1.length > 0 || 
+                       productsByRule.rule2.length > 0 || 
+                       productsByRule.rule3.length > 0;
+    
+    if (!hasProducts) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    // Mostrar o container
+    container.style.display = 'block';
+    
+    // Renderizar cards por regra
+    let html = '';
+    
+    // Regra 1: Estoque <= 0 (card piscando)
+    if (productsByRule.rule1.length > 0) {
+        html += `
+            <div class="stock-alert-rule-group" data-rule="1" data-pulse="true">
+                <div class="stock-alert-rule-header">
+                    <h4>⚠️ Estoque Zero ou Negativo</h4>
+                    <span class="stock-alert-count">${productsByRule.rule1.length} produto(s)</span>
+                </div>
+                <div class="stock-alert-products-grid">
+                    ${productsByRule.rule1.map(product => renderStockProductCard(product)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Regra 2: Configurável
+    if (productsByRule.rule2.length > 0) {
+        html += `
+            <div class="stock-alert-rule-group" data-rule="2" style="background: linear-gradient(135deg, ${settings.rule2.color} 0%, ${adjustColorBrightness(settings.rule2.color, -20)} 100%);">
+                <div class="stock-alert-rule-header">
+                    <h4>📊 Estoque Baixo (≤ ${settings.rule2.limit})</h4>
+                    <span class="stock-alert-count">${productsByRule.rule2.length} produto(s)</span>
+                </div>
+                <div class="stock-alert-products-grid">
+                    ${productsByRule.rule2.map(product => renderStockProductCard(product)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Regra 3: Configurável
+    if (productsByRule.rule3.length > 0) {
+        html += `
+            <div class="stock-alert-rule-group" data-rule="3" style="background: linear-gradient(135deg, ${settings.rule3.color} 0%, ${adjustColorBrightness(settings.rule3.color, -20)} 100%);">
+                <div class="stock-alert-rule-header">
+                    <h4>📊 Estoque Muito Baixo (≤ ${settings.rule3.limit})</h4>
+                    <span class="stock-alert-count">${productsByRule.rule3.length} produto(s)</span>
+                </div>
+                <div class="stock-alert-products-grid">
+                    ${productsByRule.rule3.map(product => renderStockProductCard(product)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    productsList.innerHTML = html;
+}
+
+// Renderizar card de produto
+function renderStockProductCard(product) {
+    const nome = product.nome || product.name || 'Produto sem nome';
+    const codigoBarras = product.codigoBarras || product.barcode || 'N/A';
+    const imagem = product.imagem || product.image || '';
+    const estoque = product.quantidadeEstoque || 0;
+    
+    return `
+        <div class="critical-stock-product-card" onclick="openEditProductWithStockFocus('${product.id}')">
+            <div class="critical-stock-product-image">
+                ${imagem 
+                    ? `<img src="${imagem}" alt="${nome}" />` 
+                    : '<div class="critical-stock-product-placeholder">📦</div>'
+                }
+            </div>
+            <div class="critical-stock-product-info">
+                <div class="critical-stock-product-name">${nome}</div>
+                <div class="critical-stock-product-barcode">Código: ${codigoBarras}</div>
+                <div class="critical-stock-product-stock">Estoque: ${estoque} unidades</div>
+            </div>
+        </div>
+    `;
+}
+
+// Ajustar brilho de cor (para criar gradiente)
+function adjustColorBrightness(hex, percent) {
+    const num = parseInt(hex.replace("#", ""), 16);
+    const amt = Math.round(2.55 * percent);
+    const R = Math.max(0, Math.min(255, (num >> 16) + amt));
+    const G = Math.max(0, Math.min(255, ((num >> 8) & 0x00FF) + amt));
+    const B = Math.max(0, Math.min(255, (num & 0x0000FF) + amt));
+    return "#" + (0x1000000 + R * 0x10000 + G * 0x100 + B).toString(16).slice(1);
+}
+
+// Abrir edição de produto e focar no campo de estoque
+function openEditProductWithStockFocus(productId) {
+    // Abrir modal de edição
+    openEditProductModal(productId);
+    
+    // Aguardar o formulário ser renderizado e focar no campo de estoque
+    setTimeout(() => {
+        const stockField = document.getElementById('product-stock');
+        if (stockField) {
+            stockField.focus();
+            stockField.select();
+        }
+    }, 500);
+}
+
+// Upload de imagem do produto
+function handleProductImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+        alert('Por favor, selecione um arquivo de imagem.');
+        return;
+    }
+    
+    // Validar tamanho (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('A imagem deve ter no máximo 5MB.');
+        return;
+    }
+    
+    // Usar o sistema de cropping existente
+    openCropModal(file, 'product-photo', 1, (croppedImageData) => {
+        // Atualizar preview
+        const preview = document.getElementById('product-image-preview');
+        preview.src = croppedImageData;
+        preview.style.display = 'block';
+        document.getElementById('remove-product-image-btn').style.display = 'block';
+    });
+}
+
+// Remover imagem do produto
+function removeProductImage() {
+    if (confirm('Tem certeza que deseja remover a imagem do produto?')) {
+        document.getElementById('product-image-preview').style.display = 'none';
+        document.getElementById('product-image-preview').src = '';
+        document.getElementById('remove-product-image-btn').style.display = 'none';
+        document.getElementById('product-image-input').value = '';
+    }
+}
+
+// Alterar imagem a partir do modal de detalhes
+function changeProductImageFromModal() {
+    if (!selectedProductId) return;
+    
+    // Criar input temporário para seleção de arquivo
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validar tipo
+        if (!file.type.startsWith('image/')) {
+            alert('Por favor, selecione um arquivo de imagem.');
+            return;
+        }
+        
+        // Validar tamanho (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('A imagem deve ter no máximo 5MB.');
+            return;
+        }
+        
+        // Usar o sistema de cropping existente
+        openCropModal(file, 'product-photo', 1, (croppedImageData) => {
+            updateProductImage(selectedProductId, croppedImageData);
+        });
+    };
+    input.click();
+}
+
+// Atualizar imagem do produto
+function updateProductImage(productId, imageSrc) {
+    const product = products.find(p => p.id === productId);
+    if (!product) return;
+    
+    product.imagem = imageSrc;
+    product.updatedAt = new Date().toISOString();
+    saveProducts();
+    loadProducts();
+    
+    // Atualizar modal se estiver aberto
+    if (selectedProductId === productId) {
+        openProductDetailsModal(productId);
+    }
+}
+
+// Remover imagem a partir do modal de detalhes
+function removeProductImageFromModal() {
+    if (!selectedProductId) return;
+    
+    if (confirm('Tem certeza que deseja remover a imagem do produto?')) {
+        const product = products.find(p => p.id === selectedProductId);
+        if (product) {
+            product.imagem = '';
+            product.updatedAt = new Date().toISOString();
+            saveProducts();
+            loadProducts();
+            openProductDetailsModal(selectedProductId);
+        }
+    }
+}
+
+// Verificar se categoria é "Outras" e mostrar campo de texto
+function checkProductCategory() {
+    const categorySelect = document.getElementById('product-category');
+    const otherGroup = document.getElementById('product-category-other-group');
+    
+    if (categorySelect.value === 'Outras') {
+        otherGroup.style.display = 'block';
+    } else {
+        otherGroup.style.display = 'none';
+        document.getElementById('product-category-other').value = '';
+    }
+}
+
+// Popular select de categorias com dados do módulo
+function populateProductCategorySelect() {
+    const categorySelect = document.getElementById('product-category');
+    if (!categorySelect) return;
+    
+    loadCategoriesFromStorage();
+    
+    // Salvar valor atual
+    const currentValue = categorySelect.value;
+    
+    // Limpar e adicionar opção padrão
+    categorySelect.innerHTML = '<option value="">Selecione uma categoria...</option>';
+    
+    // Adicionar categorias ativas
+    const activeCategories = categories.filter(c => c.status_ativo !== false);
+    activeCategories.sort((a, b) => a.nome_categoria.localeCompare(b.nome_categoria));
+    
+    activeCategories.forEach(category => {
+        const option = document.createElement('option');
+        option.value = category.nome_categoria;
+        option.textContent = category.nome_categoria;
+        option.dataset.categoryId = category.id;
+        categorySelect.appendChild(option);
+    });
+    
+    // Adicionar opção "Outras"
+    const outrasOption = document.createElement('option');
+    outrasOption.value = 'Outras';
+    outrasOption.textContent = 'Outras';
+    categorySelect.appendChild(outrasOption);
+    
+    // Restaurar valor se ainda existir
+    if (currentValue) {
+        const option = categorySelect.querySelector(`option[value="${currentValue}"]`);
+        if (option) {
+            categorySelect.value = currentValue;
+        }
+    }
+}
+
+// Popular select de marcas com dados do módulo
+function populateProductBrandSelect() {
+    const brandSelect = document.getElementById('product-brand');
+    if (!brandSelect) return;
+    
+    loadBrandsFromStorage();
+    
+    // Salvar valor atual
+    const currentValue = brandSelect.value;
+    
+    // Limpar e adicionar opção padrão
+    brandSelect.innerHTML = '<option value="">Selecione uma marca...</option>';
+    
+    // Adicionar marcas ativas
+    const activeBrands = brands.filter(b => b.status_ativo !== false);
+    activeBrands.sort((a, b) => a.nome_completo.localeCompare(b.nome_completo));
+    
+    activeBrands.forEach(brand => {
+        const option = document.createElement('option');
+        option.value = brand.nome_completo;
+        option.textContent = brand.nome_completo;
+        option.dataset.brandId = brand.id;
+        brandSelect.appendChild(option);
+    });
+    
+    // Adicionar opção "Outras"
+    const outrasOption = document.createElement('option');
+    outrasOption.value = 'Outras';
+    outrasOption.textContent = 'Outras';
+    brandSelect.appendChild(outrasOption);
+    
+    // Restaurar valor se ainda existir
+    if (currentValue) {
+        const option = brandSelect.querySelector(`option[value="${currentValue}"]`);
+        if (option) {
+            brandSelect.value = currentValue;
+        }
+    }
+}
+
+// Verificar se marca é "Outras" e mostrar campo de texto
+function checkProductBrand() {
+    const brandSelect = document.getElementById('product-brand');
+    const otherGroup = document.getElementById('product-brand-other-group');
+    
+    if (brandSelect.value === 'Outras') {
+        otherGroup.style.display = 'block';
+    } else {
+        otherGroup.style.display = 'none';
+        document.getElementById('product-brand-other').value = '';
+    }
+}
+
+// Popular select de fornecedores com dados do módulo
+function populateProductSupplierSelect() {
+    const supplierSelect = document.getElementById('product-supplier');
+    if (!supplierSelect) return;
+    
+    loadSuppliersFromStorage();
+    
+    // Salvar valor atual
+    const currentValue = supplierSelect.value;
+    
+    // Limpar e adicionar opção padrão
+    supplierSelect.innerHTML = '<option value="">Selecione um fornecedor...</option>';
+    
+    // Adicionar fornecedores ativos
+    const activeSuppliers = suppliers.filter(s => s.situacao !== 'Inativo');
+    activeSuppliers.sort((a, b) => {
+        const nomeA = a.nome || a.nomeFantasia || '';
+        const nomeB = b.nome || b.nomeFantasia || '';
+        return nomeA.localeCompare(nomeB);
+    });
+    
+    activeSuppliers.forEach(supplier => {
+        const option = document.createElement('option');
+        const displayName = supplier.nome || supplier.nomeFantasia || 'Fornecedor sem nome';
+        option.value = displayName;
+        option.textContent = displayName;
+        option.dataset.supplierId = supplier.id;
+        supplierSelect.appendChild(option);
+    });
+    
+    // Adicionar opção "Outro (Novo Fornecedor)"
+    const outroOption = document.createElement('option');
+    outroOption.value = 'Outro (Novo Fornecedor)';
+    outroOption.textContent = 'Outro (Novo Fornecedor)';
+    supplierSelect.appendChild(outroOption);
+    
+    // Restaurar valor se ainda existir
+    if (currentValue) {
+        const option = supplierSelect.querySelector(`option[value="${currentValue}"]`);
+        if (option) {
+            supplierSelect.value = currentValue;
+            checkProductSupplier(); // Atualizar visibilidade do campo "Outro"
+        }
+    }
+}
+
+// Verificar se fornecedor é "Outro (Novo Fornecedor)" e mostrar campo de texto
+function checkProductSupplier() {
+    const supplierSelect = document.getElementById('product-supplier');
+    const otherGroup = document.getElementById('product-supplier-other-group');
+    
+    if (!supplierSelect || !otherGroup) return;
+    
+    if (supplierSelect.value === 'Outro (Novo Fornecedor)') {
+        otherGroup.style.display = 'block';
+        // Tornar campo obrigatório quando visível
+        const otherInput = document.getElementById('product-supplier-other');
+        if (otherInput) {
+            otherInput.required = true;
+        }
+    } else {
+        otherGroup.style.display = 'none';
+        const otherInput = document.getElementById('product-supplier-other');
+        if (otherInput) {
+            otherInput.value = '';
+            otherInput.required = false;
+        }
+    }
+}
+
+// Adicionar event listeners quando DOM estiver pronto
+document.addEventListener('DOMContentLoaded', function() {
+    // Event listener para salvamento automático antes de fechar navegador/aba
+    window.addEventListener('beforeunload', function(e) {
+        autoSave();
+    });
+    
+    // Formulário de produto
+    const productForm = document.getElementById('product-form');
+    if (productForm) {
+        productForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            handleProductSubmit(e);
+        });
+    }
+    
+    // Formulário de marca/fabricante
+    const brandForm = document.getElementById('brand-form');
+    if (brandForm) {
+        brandForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveBrand();
+        });
+    }
+    
+    // Formulário de categoria
+    const categoryForm = document.getElementById('category-form');
+    if (categoryForm) {
+        categoryForm.addEventListener('submit', function(e) {
+            e.preventDefault();
+            saveCategory();
+        });
+    }
+    
+    // Upload de imagem
+    const productImageInput = document.getElementById('product-image-input');
+    if (productImageInput) {
+        productImageInput.addEventListener('change', handleProductImageUpload);
+    }
+    
+    // Select de marca
+    const productBrand = document.getElementById('product-brand');
+    if (productBrand) {
+        productBrand.addEventListener('change', checkProductBrand);
+    }
+    
+    // Formulário de estoque
+    const productStockForm = document.getElementById('product-stock-form');
+    if (productStockForm) {
+        productStockForm.addEventListener('submit', handleProductStockSubmit);
+    }
+    
+    // Fechar modais ao clicar fora
+    window.onclick = function(event) {
+        const productDetailsModal = document.getElementById('product-details-modal');
+        const productStockModal = document.getElementById('product-stock-modal');
+        
+        if (event.target === productDetailsModal) {
+            closeProductDetailsModal();
+        }
+        if (event.target === productStockModal) {
+            closeProductStockModal();
+        }
+        
+        const supplierDetailsModal = document.getElementById('supplier-details-modal');
+        if (event.target === supplierDetailsModal) {
+            closeSupplierDetailsModal();
+        }
+        
+        const clientDetailsModal = document.getElementById('client-details-modal');
+        if (event.target === clientDetailsModal) {
+            closeClientDetailsModal();
+        }
+        
+        const userPermissionsModal = document.getElementById('user-permissions-modal');
+        if (event.target === userPermissionsModal) {
+            closeUserPermissionsModal();
+        }
+    };
+    
+    // Configurar event listeners dos cards
+    setupCardEventListeners();
+    
+    // Formulário de fornecedor
+    const supplierForm = document.getElementById('supplier-form');
+    if (supplierForm) {
+        supplierForm.addEventListener('submit', handleSupplierSubmit);
+    }
+    
+    // Upload de logo do fornecedor
+    const supplierLogoInput = document.getElementById('supplier-logo-input');
+    if (supplierLogoInput) {
+        supplierLogoInput.addEventListener('change', handleSupplierLogoUpload);
+    }
+    
+    // Formulário de cliente no inventário
+    const inventoryClientForm = document.getElementById('inventory-client-form');
+    if (inventoryClientForm) {
+        inventoryClientForm.addEventListener('submit', handleInventoryClientSubmit);
+    }
+    
+    // Upload de foto do cliente no inventário
+    const inventoryClientPhotoInput = document.getElementById('inventory-client-photo-input');
+    if (inventoryClientPhotoInput) {
+        inventoryClientPhotoInput.addEventListener('change', function(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            
+            if (!file.type.startsWith('image/')) {
+                alert('Por favor, selecione um arquivo de imagem.');
+                return;
+            }
+            
+            if (file.size > 5 * 1024 * 1024) {
+                alert('A imagem deve ter no máximo 5MB.');
+                return;
+            }
+            
+            openCropModal(file, 'client-photo', 1, (croppedImageData) => {
+                const preview = document.getElementById('inventory-client-photo-preview');
+                if (preview) {
+                    preview.src = croppedImageData;
+                    preview.style.display = 'block';
+                }
+            });
+        });
+    }
+});
+
+// Configurar event listeners dos cards nas novas localizações
+function setupCardEventListeners() {
+    // Card de Clientes Cadastrados (agora na seção all-clients)
+    const totalClientsCard = document.querySelector('#all-clients .stat-card');
+    if (totalClientsCard && !totalClientsCard.hasAttribute('data-listener-setup')) {
+        totalClientsCard.style.cursor = 'pointer';
+        totalClientsCard.setAttribute('data-listener-setup', 'true');
+        totalClientsCard.addEventListener('click', () => {
+            if (isLicenseExpired()) {
+                showSection('license');
+                return;
+            }
+            // Já está na seção de clientes, apenas garantir que está na lista
+            showClientsListView();
+        });
+    }
+
+    // Card de Aniversários (agora na seção greetings)
+    const todayBirthdaysCard = document.querySelector('#greetings .stat-card');
+    if (todayBirthdaysCard && !todayBirthdaysCard.hasAttribute('data-listener-setup')) {
+        todayBirthdaysCard.style.cursor = 'pointer';
+        todayBirthdaysCard.setAttribute('data-listener-setup', 'true');
+        todayBirthdaysCard.addEventListener('click', () => {
+            if (isLicenseExpired()) {
+                showSection('license');
+                return;
+            }
+            // Já está na seção de felicitações, não precisa fazer nada
+        });
+    }
+}
+
+// ==================== FUNÇÕES DO SISTEMA DE FORNECEDORES ====================
+
+// Salvar fornecedores no localStorage
+function saveSuppliers() {
+    localStorage.setItem('suppliers', JSON.stringify(suppliers));
+}
+
+// Carregar fornecedores do localStorage
+function loadSuppliersFromStorage() {
+    suppliers = JSON.parse(localStorage.getItem('suppliers')) || [];
+}
+
+// Gerar ID único para fornecedor
+function generateSupplierId() {
+    return 'supplier_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Mostrar lista de fornecedores
+function showSuppliersListView() {
+    document.getElementById('suppliers-list-view').classList.add('active');
+    document.getElementById('suppliers-register-view').classList.remove('active');
+    loadSuppliers();
+}
+
+// Mostrar formulário de cadastro/edição
+function showSuppliersRegisterView() {
+    const listView = document.getElementById('suppliers-list-view');
+    const registerView = document.getElementById('suppliers-register-view');
+    if (listView) listView.classList.remove('active');
+    if (registerView) registerView.classList.add('active');
+    // Não resetar o formulário se estiver editando
+    if (!editingSupplierId) {
+        resetSupplierForm();
+    }
+}
+
+// Resetar formulário de fornecedor
+function resetSupplierForm() {
+    document.getElementById('supplier-form').reset();
+    document.getElementById('supplier-id').value = '';
+    document.getElementById('supplier-form-title').textContent = 'Cadastrar Novo Fornecedor';
+    document.getElementById('supplier-logo-preview').style.display = 'none';
+    document.getElementById('remove-supplier-logo-btn').style.display = 'none';
+    document.getElementById('supplier-person-type').value = '';
+    updateSupplierDocumentField();
+    editingSupplierId = null;
+}
+
+// Atualizar campo de documento baseado no tipo de pessoa
+function updateSupplierDocumentField() {
+    const personType = document.getElementById('supplier-person-type').value;
+    const documentLabel = document.getElementById('supplier-document-label');
+    const documentInput = document.getElementById('supplier-document');
+    
+    if (personType === 'Física') {
+        documentLabel.textContent = 'CPF *';
+        documentInput.placeholder = '000.000.000-00';
+    } else if (personType === 'Jurídica') {
+        documentLabel.textContent = 'CNPJ *';
+        documentInput.placeholder = '00.000.000/0000-00';
+    } else {
+        documentLabel.textContent = 'CPF/CNPJ *';
+        documentInput.placeholder = '';
+    }
+}
+
+// Formatar CEP
+function formatCEP(input) {
+    let value = input.value.replace(/\D/g, '');
+    if (value.length > 5) {
+        value = value.substring(0, 5) + '-' + value.substring(5, 8);
+    }
+    input.value = value;
+}
+
+// Carregar e exibir fornecedores
+function loadSuppliers() {
+    const container = document.getElementById('suppliers-list');
+    if (!container) return;
+    
+    loadSuppliersFromStorage();
+    
+    // Aplicar filtros
+    let filteredSuppliers = suppliers;
+    
+    // Filtro de pesquisa
+    const searchQuery = document.getElementById('supplier-search-input')?.value.toLowerCase() || '';
+    if (searchQuery) {
+        filteredSuppliers = filteredSuppliers.filter(s => 
+            s.nome.toLowerCase().includes(searchQuery) ||
+            (s.nomeFantasia && s.nomeFantasia.toLowerCase().includes(searchQuery))
+        );
+    }
+    
+    // Filtro de categoria
+    const categoryFilter = document.getElementById('supplier-category-filter')?.value || '';
+    if (categoryFilter) {
+        filteredSuppliers = filteredSuppliers.filter(s => s.categoria === categoryFilter);
+    }
+    
+    // Limpar container
+    container.innerHTML = '';
+    
+    if (filteredSuppliers.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>Nenhum fornecedor cadastrado</h3>
+                <p>Comece cadastrando seu primeiro fornecedor!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Popular filtro de categorias
+    populateSupplierCategoryFilter();
+    
+    // Criar cards
+    filteredSuppliers.forEach(supplier => {
+        const card = createSupplierCard(supplier);
+        container.appendChild(card);
+    });
+}
+
+// Criar card de fornecedor
+function createSupplierCard(supplier) {
+    const card = document.createElement('div');
+    card.className = 'client-card';
+    card.onclick = () => editSupplierFromCard(supplier.id);
+    
+    const logoHtml = supplier.logo 
+        ? `<img src="${supplier.logo}" alt="${supplier.nome}" class="client-photo" style="max-width: 100px; max-height: 100px; object-fit: cover;">`
+        : '<div class="client-photo" style="background: #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999; font-size: 24px; width: 100px; height: 100px;">🏢</div>';
+    
+    const statusClass = supplier.situacao === 'Ativo' ? 'active' : 'inactive';
+    const statusBadge = `<span class="status-badge ${statusClass}">${supplier.situacao || 'Ativo'}</span>`;
+    
+    card.innerHTML = `
+        <div class="client-card-header">
+            ${logoHtml}
+            <h3>${supplier.nome} ${statusBadge}</h3>
+        </div>
+        ${supplier.nomeFantasia ? `<div class="client-info"><strong>Nome Fantasia:</strong> ${supplier.nomeFantasia}</div>` : ''}
+        ${supplier.telefone ? `<div class="client-info"><strong>Telefone:</strong> ${supplier.telefone}</div>` : ''}
+        <div class="client-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-edit" onclick="editSupplierFromCard('${supplier.id}')">✏️ Editar</button>
+            <button class="btn btn-delete" onclick="deleteSupplierFromCard('${supplier.id}')">🗑️ Excluir</button>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Popular filtro de categorias
+function populateSupplierCategoryFilter() {
+    const filter = document.getElementById('supplier-category-filter');
+    if (!filter) return;
+    
+    const currentValue = filter.value;
+    const categories = [...new Set(suppliers.map(s => s.categoria).filter(c => c))].sort();
+    
+    filter.innerHTML = '<option value="">Todas as Categorias</option>';
+    categories.forEach(cat => {
+        const option = document.createElement('option');
+        option.value = cat;
+        option.textContent = cat;
+        filter.appendChild(option);
+    });
+    
+    if (currentValue) {
+        filter.value = currentValue;
+    }
+}
+
+// Pesquisar fornecedores
+function searchSuppliers() {
+    loadSuppliers();
+}
+
+// Filtrar fornecedores por categoria
+function filterSuppliersByCategory() {
+    loadSuppliers();
+}
+
+// Abrir modal de detalhes do fornecedor
+function openSupplierDetailsModal(supplierId) {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    
+    selectedSupplierId = supplierId;
+    
+    document.getElementById('supplier-details-name').textContent = supplier.nome;
+    document.getElementById('supplier-details-fantasy-name').textContent = supplier.nomeFantasia || '-';
+    document.getElementById('supplier-details-status').textContent = supplier.situacao || 'Ativo';
+    
+    const logoPreview = document.getElementById('supplier-details-logo');
+    const logoPlaceholder = document.getElementById('supplier-details-logo-placeholder');
+    const changeBtn = document.getElementById('change-supplier-logo-btn');
+    const removeBtn = document.getElementById('remove-supplier-logo-modal-btn');
+    
+    if (supplier.logo) {
+        logoPreview.src = supplier.logo;
+        logoPreview.style.display = 'block';
+        logoPlaceholder.style.display = 'none';
+        changeBtn.style.display = 'block';
+        removeBtn.style.display = 'block';
+    } else {
+        logoPreview.style.display = 'none';
+        logoPlaceholder.style.display = 'flex';
+        changeBtn.style.display = 'none';
+        removeBtn.style.display = 'none';
+    }
+    
+    document.getElementById('supplier-details-modal').style.display = 'block';
+}
+
+// Fechar modal de detalhes
+function closeSupplierDetailsModal() {
+    document.getElementById('supplier-details-modal').style.display = 'none';
+    selectedSupplierId = null;
+}
+
+// Editar fornecedor a partir do modal
+function editSupplierFromModal() {
+    if (!selectedSupplierId) return;
+    
+    closeSupplierDetailsModal();
+    openEditSupplierModal(selectedSupplierId);
+}
+
+// Abrir modal de edição
+function openEditSupplierModal(supplierId) {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    
+    editingSupplierId = supplierId;
+    
+    // Preencher formulário
+    document.getElementById('supplier-id').value = supplier.id;
+    document.getElementById('supplier-name').value = supplier.nome || '';
+    document.getElementById('supplier-fantasy-name').value = supplier.nomeFantasia || '';
+    document.getElementById('supplier-person-type').value = supplier.tipoPessoa || '';
+    updateSupplierDocumentField();
+    document.getElementById('supplier-document').value = supplier.documento || '';
+    document.getElementById('supplier-state-registration').value = supplier.inscricaoEstadual || '';
+    document.getElementById('supplier-phone').value = supplier.telefone || '';
+    document.getElementById('supplier-email').value = supplier.email || '';
+    document.getElementById('supplier-cep').value = supplier.cep || '';
+    document.getElementById('supplier-address').value = supplier.endereco || '';
+    document.getElementById('supplier-city').value = supplier.cidade || '';
+    document.getElementById('supplier-state').value = supplier.estado || '';
+    document.getElementById('supplier-bank').value = supplier.banco || '';
+    document.getElementById('supplier-agency').value = supplier.agencia || '';
+    document.getElementById('supplier-account').value = supplier.conta || '';
+    document.getElementById('supplier-pix').value = supplier.pix || '';
+    document.getElementById('supplier-payment-terms').value = supplier.condicoesPagamento || '';
+    document.getElementById('supplier-category').value = supplier.categoria || '';
+    document.getElementById('supplier-status').value = supplier.situacao || 'Ativo';
+    document.getElementById('supplier-notes').value = supplier.observacoes || '';
+    
+    // Logo
+    const preview = document.getElementById('supplier-logo-preview');
+    const removeBtn = document.getElementById('remove-supplier-logo-btn');
+    if (supplier.logo) {
+        preview.src = supplier.logo;
+        preview.style.display = 'block';
+        removeBtn.style.display = 'block';
+    } else {
+        preview.style.display = 'none';
+        removeBtn.style.display = 'none';
+    }
+    
+    document.getElementById('supplier-form-title').textContent = 'Editar Fornecedor';
+    
+    // Garantir que estamos na seção de inventário
+    const inventorySection = document.getElementById('inventory');
+    if (!inventorySection || !inventorySection.classList.contains('active')) {
+        // Navegar para a seção de inventário primeiro
+        showSection('inventory');
+    }
+    
+    // Garantir que estamos na view de fornecedores do inventário
+    const inventorySuppliersView = document.getElementById('inventory-suppliers-view');
+    if (!inventorySuppliersView || !inventorySuppliersView.classList.contains('active')) {
+        // Se não estiver na view de fornecedores, mudar para ela primeiro
+        showInventoryView('suppliers');
+        // Aguardar um pouco para garantir que a view foi carregada
+        setTimeout(() => {
+            showSuppliersRegisterView();
+        }, 200);
+    } else {
+        // Já está na view correta, apenas mostrar o formulário
+        showSuppliersRegisterView();
+    }
+}
+
+// Alternar situação do fornecedor
+function toggleSupplierStatusFromModal() {
+    if (!selectedSupplierId) return;
+    
+    const supplier = suppliers.find(s => s.id === selectedSupplierId);
+    if (!supplier) return;
+    
+    const newStatus = supplier.situacao === 'Ativo' ? 'Inativo' : 'Ativo';
+    
+    if (confirm(`Deseja alterar a situação do fornecedor para "${newStatus}"?`)) {
+        supplier.situacao = newStatus;
+        supplier.updatedAt = new Date().toISOString();
+        saveSuppliers();
+        loadSuppliers();
+        openSupplierDetailsModal(selectedSupplierId);
+        
+        // Adicionar log
+        addSystemLog('update_supplier_status', `Situação alterada: ${supplier.nome} (${newStatus})`, currentUser ? currentUser.username : 'Sistema');
+        
+        alert('Situação do fornecedor atualizada com sucesso!');
+    }
+}
+
+// Excluir fornecedor a partir do modal
+function deleteSupplierFromModal() {
+    if (!selectedSupplierId) return;
+    
+    if (confirm('Tem certeza que deseja excluir este fornecedor?')) {
+        deleteSupplier(selectedSupplierId);
+        closeSupplierDetailsModal();
+    }
+}
+
+// Excluir fornecedor
+function deleteSupplier(supplierId) {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    
+    suppliers = suppliers.filter(s => s.id !== supplierId);
+    saveSuppliers();
+    updateInventorySuppliersCount(); // Atualizar contador no botão
+    autoSave(); // Salvamento automático
+    loadSuppliers();
+    
+    // Adicionar log
+    addSystemLog('delete_supplier', `Fornecedor excluído: ${supplier.nome}`, currentUser ? currentUser.username : 'Sistema');
+    
+    alert('Fornecedor excluído com sucesso!');
+}
+
+// Processar formulário de fornecedor
+function handleSupplierSubmit(event) {
+    event.preventDefault();
+    
+    const supplierId = document.getElementById('supplier-id').value;
+    const isEditing = !!supplierId;
+    
+    // Validar campos obrigatórios
+    const nome = document.getElementById('supplier-name').value.trim();
+    const nomeFantasia = document.getElementById('supplier-fantasy-name').value.trim();
+    const tipoPessoa = document.getElementById('supplier-person-type').value;
+    const documento = document.getElementById('supplier-document').value.trim();
+    
+    if (!nome) {
+        alert('Por favor, preencha o Nome/Razão Social.');
+        return;
+    }
+    
+    if (!nomeFantasia) {
+        alert('Por favor, preencha o Nome Fantasia.');
+        return;
+    }
+    
+    if (!tipoPessoa) {
+        alert('Por favor, selecione o Tipo de Pessoa.');
+        return;
+    }
+    
+    if (!documento) {
+        alert('Por favor, preencha o CPF/CNPJ.');
+        return;
+    }
+    
+    // Obter valores
+    const inscricaoEstadual = document.getElementById('supplier-state-registration').value.trim();
+    const telefone = document.getElementById('supplier-phone').value.trim();
+    const email = document.getElementById('supplier-email').value.trim();
+    const cep = document.getElementById('supplier-cep').value.trim();
+    const endereco = document.getElementById('supplier-address').value.trim();
+    const cidade = document.getElementById('supplier-city').value.trim();
+    const estado = document.getElementById('supplier-state').value.trim();
+    const banco = document.getElementById('supplier-bank').value.trim();
+    const agencia = document.getElementById('supplier-agency').value.trim();
+    const conta = document.getElementById('supplier-account').value.trim();
+    const pix = document.getElementById('supplier-pix').value.trim();
+    const condicoesPagamento = document.getElementById('supplier-payment-terms').value.trim();
+    const categoria = document.getElementById('supplier-category').value || '';
+    const situacao = document.getElementById('supplier-status').value || 'Ativo';
+    const observacoes = document.getElementById('supplier-notes').value.trim();
+    
+    // Obter logo (se houver preview)
+    const logoPreview = document.getElementById('supplier-logo-preview');
+    const logo = logoPreview.style.display !== 'none' ? logoPreview.src : '';
+    
+    const supplierData = {
+        id: isEditing ? supplierId : generateSupplierId(),
+        nome,
+        nomeFantasia,
+        tipoPessoa,
+        documento,
+        inscricaoEstadual: inscricaoEstadual || '',
+        telefone: telefone || '',
+        email: email || '',
+        cep: cep || '',
+        endereco: endereco || '',
+        cidade: cidade || '',
+        estado: estado || '',
+        banco: banco || '',
+        agencia: agencia || '',
+        conta: conta || '',
+        pix: pix || '',
+        condicoesPagamento: condicoesPagamento || '',
+        categoria: categoria || '',
+        situacao,
+        observacoes: observacoes || '',
+        logo: logo || '',
+        updatedAt: new Date().toISOString()
+    };
+    
+    if (!isEditing) {
+        supplierData.createdAt = new Date().toISOString();
+    } else {
+        // Manter createdAt original
+        const existingSupplier = suppliers.find(s => s.id === supplierId);
+        if (existingSupplier) {
+            supplierData.createdAt = existingSupplier.createdAt;
+        } else {
+            supplierData.createdAt = new Date().toISOString();
+        }
+    }
+    
+    // Salvar fornecedor
+    if (isEditing) {
+        const index = suppliers.findIndex(s => s.id === supplierId);
+        if (index !== -1) {
+            suppliers[index] = supplierData;
+        }
+        addSystemLog('edit_supplier', `Fornecedor editado: ${nome}`, currentUser ? currentUser.username : 'Sistema');
+    } else {
+        suppliers.push(supplierData);
+        addSystemLog('create_supplier', `Fornecedor criado: ${nome}`, currentUser ? currentUser.username : 'Sistema');
+    }
+    
+    saveSuppliers();
+    updateInventorySuppliersCount(); // Atualizar contador no botão
+    autoSave(); // Salvamento automático
+    
+    // Limpar editingSupplierId após salvar
+    editingSupplierId = null;
+    
+    showSuppliersListView();
+    loadSuppliers();
+    
+    alert(isEditing ? 'Fornecedor atualizado com sucesso!' : 'Fornecedor cadastrado com sucesso!');
+}
+
+// Upload de logo do fornecedor
+function handleSupplierLogoUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+        alert('Por favor, selecione um arquivo de imagem.');
+        return;
+    }
+    
+    // Validar tamanho (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('A imagem deve ter no máximo 5MB.');
+        return;
+    }
+    
+    // Usar o sistema de cropping existente
+    openCropModal(file, 'supplier-logo', 1, (croppedImageData) => {
+        // Atualizar preview
+        const preview = document.getElementById('supplier-logo-preview');
+        preview.src = croppedImageData;
+        preview.style.display = 'block';
+        document.getElementById('remove-supplier-logo-btn').style.display = 'block';
+    });
+}
+
+// Remover logo do fornecedor
+function removeSupplierLogo() {
+    if (confirm('Tem certeza que deseja remover a logo do fornecedor?')) {
+        document.getElementById('supplier-logo-preview').style.display = 'none';
+        document.getElementById('supplier-logo-preview').src = '';
+        document.getElementById('remove-supplier-logo-btn').style.display = 'none';
+        document.getElementById('supplier-logo-input').value = '';
+    }
+}
+
+// Alterar logo a partir do modal de detalhes
+function changeSupplierLogoFromModal() {
+    if (!selectedSupplierId) return;
+    
+    // Criar input temporário para seleção de arquivo
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*';
+    input.onchange = function(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+        
+        // Validar tipo
+        if (!file.type.startsWith('image/')) {
+            alert('Por favor, selecione um arquivo de imagem.');
+            return;
+        }
+        
+        // Validar tamanho (5MB)
+        if (file.size > 5 * 1024 * 1024) {
+            alert('A imagem deve ter no máximo 5MB.');
+            return;
+        }
+        
+        // Usar o sistema de cropping existente
+        openCropModal(file, 'supplier-logo', 1, (croppedImageData) => {
+            updateSupplierLogo(selectedSupplierId, croppedImageData);
+        });
+    };
+    input.click();
+}
+
+// Atualizar logo do fornecedor
+function updateSupplierLogo(supplierId, logoSrc) {
+    const supplier = suppliers.find(s => s.id === supplierId);
+    if (!supplier) return;
+    
+    supplier.logo = logoSrc;
+    supplier.updatedAt = new Date().toISOString();
+    saveSuppliers();
+    loadSuppliers();
+    
+    // Atualizar modal se estiver aberto
+    if (selectedSupplierId === supplierId) {
+        openSupplierDetailsModal(supplierId);
+    }
+}
+
+// Remover logo a partir do modal de detalhes
+function removeSupplierLogoFromModal() {
+    if (!selectedSupplierId) return;
+    
+    if (confirm('Tem certeza que deseja remover a logo do fornecedor?')) {
+        const supplier = suppliers.find(s => s.id === selectedSupplierId);
+        if (supplier) {
+            supplier.logo = '';
+            supplier.updatedAt = new Date().toISOString();
+            saveSuppliers();
+            loadSuppliers();
+            openSupplierDetailsModal(selectedSupplierId);
+        }
+    }
+}
+
+// ==================== FUNÇÕES DE CLIENTES NO INVENTÁRIO ====================
+
+// Mostrar lista de clientes no inventário
+function showInventoryClientsListView() {
+    const listView = document.getElementById('inventory-clients-list-view');
+    const registerView = document.getElementById('inventory-clients-register-view');
+    if (listView) listView.classList.add('active');
+    if (registerView) registerView.classList.remove('active');
+    loadInventoryClients();
+}
+
+// Mostrar formulário de cadastro/edição no inventário
+function showInventoryClientsRegisterView(resetForm = true) {
+    const listView = document.getElementById('inventory-clients-list-view');
+    const registerView = document.getElementById('inventory-clients-register-view');
+    if (listView) listView.classList.remove('active');
+    if (registerView) registerView.classList.add('active');
+    if (resetForm) {
+        resetInventoryClientForm();
+    }
+}
+
+// Resetar formulário de cliente no inventário
+function resetInventoryClientForm() {
+    const form = document.getElementById('inventory-client-form');
+    if (form) form.reset();
+    const clientId = document.getElementById('inventory-client-id');
+    if (clientId) clientId.value = '';
+    const formTitle = document.getElementById('inventory-client-form-title');
+    if (formTitle) formTitle.textContent = 'Cadastrar Novo Cliente';
+    const preview = document.getElementById('inventory-client-photo-preview');
+    if (preview) preview.style.display = 'none';
+    
+    // Resetar campos dinâmicos
+    const phonesContainer = document.getElementById('inventory-phones-container');
+    if (phonesContainer) {
+        phonesContainer.innerHTML = `
+            <div class="dynamic-field">
+                <input type="tel" class="phone-input" placeholder="(00) 00000-0000" required>
+                <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'phone')">Remover</button>
+            </div>
+        `;
+    }
+    
+    const emailsContainer = document.getElementById('inventory-emails-container');
+    if (emailsContainer) {
+        emailsContainer.innerHTML = `
+            <div class="dynamic-field">
+                <input type="email" class="email-input" placeholder="email@exemplo.com" required>
+                <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'email')">Remover</button>
+            </div>
+        `;
+    }
+}
+
+// Carregar clientes no inventário
+function loadInventoryClients() {
+    const container = document.getElementById('inventory-clients-list');
+    if (!container) return;
+    
+    // Atualizar contador no botão lateral
+    const countBadge = document.getElementById('inventory-clients-count');
+    if (countBadge) {
+        countBadge.textContent = `[${clients.length}]`;
+    }
+    
+    // Aplicar filtros
+    let filteredClients = clients;
+    
+    // Filtro de pesquisa
+    const searchQuery = document.getElementById('inventory-client-search-input')?.value.toLowerCase() || '';
+    if (searchQuery) {
+        filteredClients = filteredClients.filter(c => 
+            c.name.toLowerCase().includes(searchQuery)
+        );
+    }
+    
+    // Filtro de categoria
+    const filterValue = document.getElementById('inventory-client-filter')?.value || '';
+    if (filterValue === 'aniversario-proximo') {
+        const today = new Date();
+        const next30Days = new Date();
+        next30Days.setDate(today.getDate() + 30);
+        filteredClients = filteredClients.filter(c => {
+            const birthdate = new Date(c.birthdate);
+            const thisYear = new Date(today.getFullYear(), birthdate.getMonth(), birthdate.getDate());
+            const nextYear = new Date(today.getFullYear() + 1, birthdate.getMonth(), birthdate.getDate());
+            return (thisYear >= today && thisYear <= next30Days) || (nextYear >= today && nextYear <= next30Days);
+        });
+    } else if (filterValue === 'sem-aniversario') {
+        filteredClients = filteredClients.filter(c => !c.birthdate);
+    }
+    
+    if (filteredClients.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state">
+                <h3>${searchQuery || filterValue ? 'Nenhum cliente encontrado' : 'Nenhum cliente cadastrado'}</h3>
+                <p>${searchQuery || filterValue ? 'Tente pesquisar com outro termo ou filtro.' : 'Comece cadastrando seu primeiro cliente!'}</p>
+            </div>
+        `;
+        return;
+    }
+    
+    // Limpar container
+    container.innerHTML = '';
+    
+    // Criar cards
+    filteredClients.forEach(client => {
+        const card = createInventoryClientCard(client);
+        container.appendChild(card);
+    });
+}
+
+// Pesquisar clientes no inventário
+function searchInventoryClients() {
+    loadInventoryClients();
+}
+
+// Filtrar clientes no inventário
+function filterInventoryClients() {
+    loadInventoryClients();
+}
+
+// Criar card de cliente no inventário
+function createInventoryClientCard(client) {
+    const card = document.createElement('div');
+    card.className = 'client-card';
+    card.onclick = () => editClientFromCard(client.id);
+    card.style.cursor = 'pointer';
+    
+    const photoHtml = client.photo 
+        ? `<img src="${client.photo}" alt="${client.name}" class="client-photo" style="max-width: 100px; max-height: 100px; object-fit: cover;">`
+        : '<div class="client-photo" style="background: #e0e0e0; display: flex; align-items: center; justify-content: center; color: #999; font-size: 24px; width: 100px; height: 100px;">👤</div>';
+    
+    const phonesHtml = client.phones && client.phones.length > 0 
+        ? `<div class="client-info"><strong>Telefone:</strong> ${client.phones[0]}</div>` 
+        : '';
+    
+    card.innerHTML = `
+        <div class="client-card-header">
+            ${photoHtml}
+            <h3>${client.name}</h3>
+        </div>
+        ${client.cpf ? `<div class="client-info"><strong>CPF:</strong> ${client.cpf}</div>` : ''}
+        <div class="client-info"><strong>Data de Nascimento:</strong> ${formatDate(client.birthdate)}</div>
+        ${phonesHtml}
+        <div class="client-actions" onclick="event.stopPropagation()">
+            <button class="btn btn-edit" onclick="editClientFromCard('${client.id}')">✏️ Editar</button>
+            <button class="btn btn-delete" onclick="deleteClientFromCard('${client.id}')">🗑️ Excluir</button>
+        </div>
+    `;
+    
+    return card;
+}
+
+// Adicionar campo dinâmico no inventário
+function addInventoryField(type) {
+    const container = type === 'phone' 
+        ? document.getElementById('inventory-phones-container')
+        : document.getElementById('inventory-emails-container');
+    
+    if (!container) return;
+    
+    const field = document.createElement('div');
+    field.className = 'dynamic-field';
+    field.innerHTML = `
+        <input type="${type === 'phone' ? 'tel' : 'email'}" 
+               class="${type === 'phone' ? 'phone-input' : 'email-input'}" 
+               placeholder="${type === 'phone' ? '(00) 00000-0000' : 'email@exemplo.com'}" 
+               required>
+        <button type="button" class="btn-remove" onclick="removeInventoryField(this, '${type}')">Remover</button>
+    `;
+    container.appendChild(field);
+}
+
+// Remover campo dinâmico no inventário
+function removeInventoryField(button, type) {
+    const field = button.parentElement;
+    const container = type === 'phone' 
+        ? document.getElementById('inventory-phones-container')
+        : document.getElementById('inventory-emails-container');
+    
+    if (container && container.children.length > 1) {
+        field.remove();
+    }
+}
+
+// Processar formulário de cliente no inventário
+function handleInventoryClientSubmit(event) {
+    event.preventDefault();
+    
+    const clientId = document.getElementById('inventory-client-id').value;
+    const isEditing = !!clientId;
+    
+    // Validar campos obrigatórios
+    const name = document.getElementById('inventory-client-name').value.trim();
+    const birthdate = document.getElementById('inventory-client-birthdate').value;
+    
+    if (!name) {
+        alert('Por favor, preencha o nome do cliente.');
+        return;
+    }
+    
+    if (!birthdate) {
+        alert('Por favor, preencha a data de nascimento.');
+        return;
+    }
+    
+    // Obter telefones e emails
+    const phoneInputs = document.querySelectorAll('#inventory-phones-container .phone-input');
+    const emailInputs = document.querySelectorAll('#inventory-emails-container .email-input');
+    
+    const phones = Array.from(phoneInputs).map(input => input.value.trim()).filter(v => v);
+    const emails = Array.from(emailInputs).map(input => input.value.trim()).filter(v => v);
+    
+    if (phones.length === 0) {
+        alert('Por favor, adicione pelo menos um telefone.');
+        return;
+    }
+    
+    if (emails.length === 0) {
+        alert('Por favor, adicione pelo menos um email.');
+        return;
+    }
+    
+    // Obter foto
+    const photoPreview = document.getElementById('inventory-client-photo-preview');
+    const photo = photoPreview && photoPreview.style.display !== 'none' ? photoPreview.src : '';
+    
+    const clientData = {
+        id: isEditing ? clientId : generateClientId(),
+        name,
+        cpf: document.getElementById('inventory-client-cpf').value.trim() || '',
+        birthdate,
+        phones,
+        emails,
+        photo: photo || '',
+        updatedAt: new Date().toISOString()
+    };
+    
+    if (!isEditing) {
+        clientData.createdAt = new Date().toISOString();
+    } else {
+        const existingClient = clients.find(c => c.id === clientId);
+        if (existingClient) {
+            clientData.createdAt = existingClient.createdAt;
+        } else {
+            clientData.createdAt = new Date().toISOString();
+        }
+    }
+    
+    // Salvar cliente
+    if (isEditing) {
+        const index = clients.findIndex(c => c.id === clientId);
+        if (index !== -1) {
+            clients[index] = clientData;
+        }
+        addSystemLog('edit_client', `Cliente editado: ${name}`, currentUser ? currentUser.username : 'Sistema');
+    } else {
+        clients.push(clientData);
+        addSystemLog('create_client', `Cliente criado: ${name}`, currentUser ? currentUser.username : 'Sistema');
+    }
+    
+    saveClients();
+    autoSave(); // Salvamento automático
+    showInventoryClientsListView();
+    loadInventoryClients();
+    updateInventoryClientsCount(); // Atualizar contador no botão
+    loadAllClients(); // Atualizar também a lista principal
+    
+    alert(isEditing ? 'Cliente atualizado com sucesso!' : 'Cliente cadastrado com sucesso!');
+}
+
+// Gerar ID único para cliente
+function generateClientId() {
+    return 'client_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Salvar clientes
+function saveClients() {
+    localStorage.setItem('clients', JSON.stringify(clients));
+}
+
+// Abrir modal de detalhes do cliente
+function openClientDetailsModal(clientId) {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    
+    selectedClientId = clientId;
+    
+    document.getElementById('client-details-name').textContent = client.name;
+    
+    const photoPreview = document.getElementById('client-details-photo');
+    const photoPlaceholder = document.getElementById('client-details-photo-placeholder');
+    const changeBtn = document.getElementById('change-client-photo-btn');
+    const removeBtn = document.getElementById('remove-client-photo-modal-btn');
+    
+    if (client.photo) {
+        photoPreview.src = client.photo;
+        photoPreview.style.display = 'block';
+        photoPlaceholder.style.display = 'none';
+        if (changeBtn) changeBtn.style.display = 'block';
+        if (removeBtn) removeBtn.style.display = 'block';
+    } else {
+        photoPreview.style.display = 'none';
+        photoPlaceholder.style.display = 'flex';
+        if (changeBtn) changeBtn.style.display = 'none';
+        if (removeBtn) removeBtn.style.display = 'none';
+    }
+    
+    // Preencher informações
+    document.getElementById('client-details-cpf').innerHTML = client.cpf ? `<strong>CPF:</strong> ${client.cpf}` : '';
+    document.getElementById('client-details-birthdate').innerHTML = `<strong>Data de Nascimento:</strong> ${formatDate(client.birthdate)}`;
+    document.getElementById('client-details-phones').innerHTML = client.phones && client.phones.length > 0 
+        ? `<strong>Telefones:</strong> ${client.phones.map(p => `📞 ${p}`).join(', ')}` 
+        : '';
+    document.getElementById('client-details-emails').innerHTML = client.emails && client.emails.length > 0 
+        ? `<strong>Emails:</strong> ${client.emails.map(e => `✉️ ${e}`).join(', ')}` 
+        : '';
+    
+    document.getElementById('client-details-modal').style.display = 'block';
+}
+
+// Fechar modal de detalhes do cliente
+function closeClientDetailsModal() {
+    document.getElementById('client-details-modal').style.display = 'none';
+    selectedClientId = null;
+}
+
+// Editar cliente a partir do modal
+function editClientFromModal() {
+    if (!selectedClientId) return;
+    
+    const client = clients.find(c => c.id === selectedClientId);
+    if (!client) return;
+    
+    closeClientDetailsModal();
+    
+    // Verificar se estamos na view de clientes do inventário
+    const inventoryClientsView = document.getElementById('inventory-clients-view');
+    if (inventoryClientsView && inventoryClientsView.classList.contains('active')) {
+        // Já está na view de inventário, apenas abrir o formulário
+        openEditInventoryClientModal(selectedClientId);
+    } else {
+        // Navegar para a view de clientes do inventário primeiro
+        showSection('inventory');
+        showInventoryView('clients');
+        // Aguardar um pouco para garantir que a view foi carregada
+        setTimeout(() => {
+            openEditInventoryClientModal(selectedClientId);
+        }, 200);
+    }
+}
+
+// Abrir modal de edição de cliente no inventário
+function openEditInventoryClientModal(clientId) {
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    
+    // Garantir que estamos na seção de inventário
+    const inventorySection = document.getElementById('inventory');
+    if (!inventorySection || !inventorySection.classList.contains('active')) {
+        // Navegar para a seção de inventário primeiro
+        showSection('inventory');
+    }
+    
+    // Garantir que estamos na view de clientes do inventário
+    const inventoryClientsView = document.getElementById('inventory-clients-view');
+    if (!inventoryClientsView || !inventoryClientsView.classList.contains('active')) {
+        // Se não estiver na view de clientes, mudar para ela primeiro
+        showInventoryView('clients');
+        // Aguardar um pouco para garantir que a view foi carregada
+        setTimeout(() => {
+            fillInventoryClientForm(client);
+            showInventoryClientsRegisterView(false); // Não resetar o formulário
+        }, 250);
+    } else {
+        // Já está na view correta, apenas preencher e mostrar o formulário
+        fillInventoryClientForm(client);
+        showInventoryClientsRegisterView(false); // Não resetar o formulário
+    }
+}
+
+// Preencher formulário de cliente no inventário
+function fillInventoryClientForm(client) {
+    // Preencher formulário
+    document.getElementById('inventory-client-id').value = client.id;
+    document.getElementById('inventory-client-name').value = client.name || '';
+    document.getElementById('inventory-client-cpf').value = client.cpf || '';
+    
+    let birthdateValue = client.birthdate;
+    if (birthdateValue && birthdateValue.includes('T')) {
+        birthdateValue = birthdateValue.split('T')[0];
+    }
+    document.getElementById('inventory-client-birthdate').value = birthdateValue;
+    
+    // Preencher telefones
+    const phonesContainer = document.getElementById('inventory-phones-container');
+    if (phonesContainer) {
+        phonesContainer.innerHTML = '';
+        if (client.phones && client.phones.length > 0) {
+            client.phones.forEach(phone => {
+                const field = document.createElement('div');
+                field.className = 'dynamic-field';
+                field.innerHTML = `
+                    <input type="tel" class="phone-input" placeholder="(00) 00000-0000" value="${phone}" required>
+                    <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'phone')">Remover</button>
+                `;
+                phonesContainer.appendChild(field);
+            });
+        } else {
+            addInventoryField('phone');
+        }
+    }
+    
+    // Preencher emails
+    const emailsContainer = document.getElementById('inventory-emails-container');
+    if (emailsContainer) {
+        emailsContainer.innerHTML = '';
+        if (client.emails && client.emails.length > 0) {
+            client.emails.forEach(email => {
+                const field = document.createElement('div');
+                field.className = 'dynamic-field';
+                field.innerHTML = `
+                    <input type="email" class="email-input" placeholder="email@exemplo.com" value="${email}" required>
+                    <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'email')">Remover</button>
+                `;
+                emailsContainer.appendChild(field);
+            });
+        } else {
+            addInventoryField('email');
+        }
+    }
+    
+    // Foto
+    const preview = document.getElementById('inventory-client-photo-preview');
+    if (client.photo && preview) {
+        preview.src = client.photo;
+        preview.style.display = 'block';
+    } else if (preview) {
+        preview.style.display = 'none';
+    }
+    
+    document.getElementById('inventory-client-form-title').textContent = 'Editar Cliente';
+}
+
+// ==================== FUNÇÕES DE BOTÕES NOS CARDS ====================
+
+// Editar produto a partir do card
+function editProductFromCard(productId) {
+    if (event) event.stopPropagation();
+    openEditProductModal(productId);
+}
+
+// Excluir produto a partir do card
+function deleteProductFromCard(productId) {
+    event.stopPropagation();
+    if (confirm('Tem certeza que deseja excluir este produto?')) {
+        deleteProduct(productId);
+    }
+}
+
+// Editar fornecedor a partir do card
+function editSupplierFromCard(supplierId) {
+    if (event) event.stopPropagation();
+    openEditSupplierModal(supplierId);
+}
+
+// Excluir fornecedor a partir do card
+function deleteSupplierFromCard(supplierId) {
+    event.stopPropagation();
+    if (confirm('Tem certeza que deseja excluir este fornecedor?')) {
+        deleteSupplier(supplierId);
+    }
+}
+
+// Editar cliente a partir do card
+function editClientFromCard(clientId) {
+    if (event) event.stopPropagation();
+    
+    const client = clients.find(c => c.id === clientId);
+    if (!client) return;
+    
+    // Sempre editar no inventário
+    // Garantir que estamos na seção de inventário
+    const inventorySection = document.getElementById('inventory');
+    if (!inventorySection || !inventorySection.classList.contains('active')) {
+        showSection('inventory');
+    }
+    
+    // Garantir que estamos na view de clientes
+    const inventoryClientsView = document.getElementById('inventory-clients-view');
+    if (!inventoryClientsView || !inventoryClientsView.classList.contains('active')) {
+        showInventoryView('clients');
+        setTimeout(() => {
+            openEditInventoryClientModal(clientId);
+        }, 250);
+    } else {
+        // Já está na view correta, apenas abrir o formulário
+        openEditInventoryClientModal(clientId);
+    }
+}
+
+// Excluir cliente a partir do card
+function deleteClientFromCard(clientId) {
+    event.stopPropagation();
+    deleteClient(clientId); // A função deleteClient já tem confirmação
+}
+
+// ==================== FUNÇÕES DE FORMAS DE PAGAMENTO ====================
+
+// Inicializar formas de pagamento padrão
+function initializePaymentMethods() {
+    if (paymentMethods.length === 0) {
+        const defaultMethods = [
+            { id: Date.now() + 1, name: 'Dinheiro', description: '', active: true },
+            { id: Date.now() + 2, name: 'Débito', description: '', active: true },
+            { id: Date.now() + 3, name: 'Crédito à Vista', description: '', active: true },
+            { id: Date.now() + 4, name: 'Crédito Parcelado', description: '', active: true, installments: 12 },
+            { id: Date.now() + 5, name: 'A Prazo', description: '', active: true },
+            { id: Date.now() + 6, name: 'PIX', description: '', active: true, pixType: 'cpf', pixKey: '', pixRecipient: '' }
+        ];
+        paymentMethods = defaultMethods;
+        savePaymentMethods();
+    }
+}
+
+// Salvar formas de pagamento no localStorage
+function savePaymentMethods() {
+    try {
+        localStorage.setItem('paymentMethods', JSON.stringify(paymentMethods));
+    } catch (error) {
+        console.error('Erro ao salvar formas de pagamento:', error);
+    }
+}
+
+// Mostrar view de formas de pagamento
+function showPaymentMethodsView() {
+    const settingsView = document.getElementById('inventory-settings-view');
+    const paymentMethodsView = document.getElementById('payment-methods-view');
+    if (settingsView) settingsView.querySelector('.settings-menu').style.display = 'none';
+    if (paymentMethodsView) {
+        paymentMethodsView.style.display = 'block';
+        showPaymentMethodsList();
+    }
+}
+
+// Mostrar view de lista de formas de pagamento
+function showPaymentMethodsList() {
+    const listView = document.getElementById('payment-methods-list-view');
+    const registerView = document.getElementById('payment-methods-register-view');
+    if (listView) listView.classList.add('active');
+    if (registerView) registerView.classList.remove('active');
+    loadPaymentMethodsList();
+}
+
+// Mostrar view de formulário de formas de pagamento
+function showPaymentMethodsRegisterView() {
+    const listView = document.getElementById('payment-methods-list-view');
+    const registerView = document.getElementById('payment-methods-register-view');
+    if (listView) listView.classList.remove('active');
+    if (registerView) registerView.classList.add('active');
+}
+
+// Voltar ao menu de configurações
+function backToSettingsMenu() {
+    const settingsView = document.getElementById('inventory-settings-view');
+    const paymentMethodsView = document.getElementById('payment-methods-view');
+    const stockVisibilityView = document.getElementById('stock-visibility-view');
+    const receivablesVisibilityView = document.getElementById('receivables-visibility-view');
+    if (settingsView) settingsView.querySelector('.settings-menu').style.display = 'block';
+    if (paymentMethodsView) paymentMethodsView.style.display = 'none';
+    if (stockVisibilityView) stockVisibilityView.style.display = 'none';
+    if (receivablesVisibilityView) receivablesVisibilityView.style.display = 'none';
+}
+
+// Mostrar view de visibilidade de estoque
+function showStockVisibilityView() {
+    const settingsView = document.getElementById('inventory-settings-view');
+    const stockVisibilityView = document.getElementById('stock-visibility-view');
+    if (settingsView) settingsView.querySelector('.settings-menu').style.display = 'none';
+    if (stockVisibilityView) {
+        stockVisibilityView.style.display = 'block';
+        loadStockVisibilitySettings();
+    }
+}
+
+// Carregar configurações de visibilidade de estoque
+function loadStockVisibilitySettings() {
+    const settings = getStockVisibilitySettings();
+    
+    // Regra 2
+    document.getElementById('stock-rule-2-limit').value = settings.rule2.limit || 10;
+    document.getElementById('stock-rule-2-color').value = settings.rule2.color || '#ffa500';
+    document.getElementById('stock-rule-2-enabled').checked = settings.rule2.enabled !== false;
+    
+    // Regra 3
+    document.getElementById('stock-rule-3-limit').value = settings.rule3.limit || 5;
+    document.getElementById('stock-rule-3-color').value = settings.rule3.color || '#ff9800';
+    document.getElementById('stock-rule-3-enabled').checked = settings.rule3.enabled !== false;
+}
+
+// Salvar configurações de visibilidade de estoque
+function saveStockVisibilitySettings() {
+    const settings = {
+        rule2: {
+            limit: parseInt(document.getElementById('stock-rule-2-limit').value) || 10,
+            color: document.getElementById('stock-rule-2-color').value || '#ffa500',
+            enabled: document.getElementById('stock-rule-2-enabled').checked
+        },
+        rule3: {
+            limit: parseInt(document.getElementById('stock-rule-3-limit').value) || 5,
+            color: document.getElementById('stock-rule-3-color').value || '#ff9800',
+            enabled: document.getElementById('stock-rule-3-enabled').checked
+        }
+    };
+    
+    localStorage.setItem('stockVisibilitySettings', JSON.stringify(settings));
+    alert('Configurações salvas com sucesso!');
+    
+    // Atualizar alerta na tela inicial se estiver visível
+    if (document.getElementById('home') && document.getElementById('home').classList.contains('active')) {
+        loadCriticalStockAlert();
+    }
+}
+
+// Obter configurações de visibilidade de estoque
+function getStockVisibilitySettings() {
+    const saved = localStorage.getItem('stockVisibilitySettings');
+    if (saved) {
+        return JSON.parse(saved);
+    }
+    // Valores padrão
+    return {
+        rule2: {
+            limit: 10,
+            color: '#ffa500',
+            enabled: true
+        },
+        rule3: {
+            limit: 5,
+            color: '#ff9800',
+            enabled: true
+        }
+    };
+}
+
+// Mostrar view de visibilidade de contas a receber
+function showReceivablesVisibilityView() {
+    // Verificar se o usuário é administrador
+    if (!isAdmin()) {
+        alert('Apenas administradores podem configurar as regras de visibilidade.');
+        return;
+    }
+    
+    const settingsView = document.getElementById('inventory-settings-view');
+    const receivablesVisibilityView = document.getElementById('receivables-visibility-view');
+    if (settingsView) settingsView.querySelector('.settings-menu').style.display = 'none';
+    if (receivablesVisibilityView) {
+        receivablesVisibilityView.style.display = 'block';
+        loadReceivablesVisibilitySettings();
+    }
+}
+
+// Validar regra 2
+function validateReceivablesRule2() {
+    const rule2Input = document.getElementById('receivables-rule-2-max-days');
+    const rule3Input = document.getElementById('receivables-rule-3-max-days');
+    
+    if (rule2Input && rule3Input) {
+        const rule2Value = parseInt(rule2Input.value) || 0;
+        const rule3Value = parseInt(rule3Input.value) || 0;
+        
+        if (rule2Value >= rule3Value) {
+            rule3Input.setCustomValidity('O valor deve ser maior que o da Regra 2');
+        } else {
+            rule3Input.setCustomValidity('');
+        }
+    }
+}
+
+// Validar regra 3
+function validateReceivablesRule3() {
+    const rule2Input = document.getElementById('receivables-rule-2-max-days');
+    const rule3Input = document.getElementById('receivables-rule-3-max-days');
+    
+    if (rule2Input && rule3Input) {
+        const rule2Value = parseInt(rule2Input.value) || 0;
+        const rule3Value = parseInt(rule3Input.value) || 0;
+        
+        if (rule3Value <= rule2Value) {
+            rule3Input.setCustomValidity('O valor deve ser maior que o da Regra 2');
+        } else {
+            rule3Input.setCustomValidity('');
+        }
+    }
+}
+
+// Carregar configurações de visibilidade de contas a receber
+function loadReceivablesVisibilitySettings() {
+    const settings = getReceivablesVisibilitySettings();
+    
+    // Regra 1 (fixa)
+    document.getElementById('receivables-rule-1-color').value = settings.rule1.color || '#ff6b6b';
+    
+    // Regra 2
+    document.getElementById('receivables-rule-2-max-days').value = settings.rule2.maxDays || 30;
+    document.getElementById('receivables-rule-2-color').value = settings.rule2.color || '#ffa500';
+    document.getElementById('receivables-rule-2-enabled').checked = settings.rule2.enabled !== false;
+    
+    // Regra 3
+    document.getElementById('receivables-rule-3-max-days').value = settings.rule3.maxDays || 180;
+    document.getElementById('receivables-rule-3-color').value = settings.rule3.color || '#4caf50';
+    document.getElementById('receivables-rule-3-enabled').checked = settings.rule3.enabled !== false;
+    
+    // Adicionar listeners para validação
+    const rule2Input = document.getElementById('receivables-rule-2-max-days');
+    const rule3Input = document.getElementById('receivables-rule-3-max-days');
+    
+    if (rule2Input) {
+        rule2Input.addEventListener('change', validateReceivablesRule2);
+        rule2Input.addEventListener('input', validateReceivablesRule2);
+    }
+    
+    if (rule3Input) {
+        rule3Input.addEventListener('change', validateReceivablesRule3);
+        rule3Input.addEventListener('input', validateReceivablesRule3);
+    }
+}
+
+// Salvar configurações de visibilidade de contas a receber
+function saveReceivablesVisibilitySettings() {
+    // Verificar se o usuário é administrador
+    if (!isAdmin()) {
+        alert('Apenas administradores podem salvar configurações.');
+        return;
+    }
+    
+    // Validar regras
+    const rule2Value = parseInt(document.getElementById('receivables-rule-2-max-days').value) || 0;
+    const rule3Value = parseInt(document.getElementById('receivables-rule-3-max-days').value) || 0;
+    
+    if (rule2Value >= rule3Value) {
+        alert('O valor da Regra 3 deve ser maior que o da Regra 2.');
+        return;
+    }
+    
+    if (rule2Value < 1 || rule2Value > 90) {
+        alert('A Regra 2 deve ter um valor entre 1 e 90 dias.');
+        return;
+    }
+    
+    if (rule3Value < 91 || rule3Value > 180) {
+        alert('A Regra 3 deve ter um valor entre 91 e 180 dias.');
+        return;
+    }
+    
+    const settings = {
+        rule1: {
+            color: document.getElementById('receivables-rule-1-color').value || '#ff6b6b'
+        },
+        rule2: {
+            maxDays: rule2Value,
+            color: document.getElementById('receivables-rule-2-color').value || '#ffa500',
+            enabled: document.getElementById('receivables-rule-2-enabled').checked
+        },
+        rule3: {
+            maxDays: rule3Value,
+            color: document.getElementById('receivables-rule-3-color').value || '#4caf50',
+            enabled: document.getElementById('receivables-rule-3-enabled').checked
+        }
+    };
+    
+    localStorage.setItem('receivablesVisibilitySettings', JSON.stringify(settings));
+    alert('Configurações salvas com sucesso!');
+    
+    // Atualizar alerta na tela inicial se estiver visível
+    if (document.getElementById('home') && document.getElementById('home').classList.contains('active')) {
+        loadReceivablesExpirationAlert();
+    }
+}
+
+// Obter configurações de visibilidade de contas a receber
+function getReceivablesVisibilitySettings() {
+    const saved = localStorage.getItem('receivablesVisibilitySettings');
+    if (saved) {
+        return JSON.parse(saved);
+    }
+    // Valores padrão
+    return {
+        rule1: {
+            color: '#ff6b6b'
+        },
+        rule2: {
+            maxDays: 30,
+            color: '#ffa500',
+            enabled: true
+        },
+        rule3: {
+            maxDays: 180,
+            color: '#4caf50',
+            enabled: true
+        }
+    };
+}
+
+// Calcular dias até vencimento
+function getDaysUntilDue(dueDate) {
+    if (!dueDate) return null;
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    
+    const diffTime = due - today;
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    return diffDays;
+}
+
+// Carregar e exibir alerta de vencimento de contas a receber na tela inicial
+function loadReceivablesExpirationAlert() {
+    const container = document.getElementById('receivables-expiration-alert-container');
+    if (!container) return;
+    
+    // Carregar receivables do localStorage
+    receivables = JSON.parse(localStorage.getItem('receivables')) || [];
+    
+    // Obter configurações de regras
+    const settings = getReceivablesVisibilitySettings();
+    
+    // Filtrar apenas contas não pagas
+    const unpaidReceivables = receivables.filter(rec => {
+        const amountDue = rec.amountDue || 0;
+        return amountDue > 0;
+    });
+    
+    // Agrupar contas por regra
+    const receivablesByRule = {
+        rule1: [], // Vencidas ou vencendo hoje (fixa, sempre ativa)
+        rule2: [], // Configurável 1
+        rule3: []  // Configurável 2
+    };
+    
+    unpaidReceivables.forEach(receivable => {
+        if (!receivable.dueDate) return;
+        
+        const daysUntilDue = getDaysUntilDue(receivable.dueDate);
+        if (daysUntilDue === null) return;
+        
+        // Regra 1: Vencidas ou vencendo hoje (sempre verificar, tem prioridade)
+        if (daysUntilDue <= 0) {
+            receivablesByRule.rule1.push(receivable);
+            return; // Não verificar outras regras para esta conta
+        }
+        
+        // Regra 2: Se ativada e está dentro do range (1 até maxDays)
+        if (settings.rule2.enabled && daysUntilDue >= 1 && daysUntilDue <= settings.rule2.maxDays) {
+            receivablesByRule.rule2.push(receivable);
+            return; // Não verificar regra 3 para esta conta
+        }
+        
+        // Regra 3: Se ativada e está acima do maxDays da regra 2 até o maxDays da regra 3
+        if (settings.rule3.enabled && daysUntilDue > settings.rule2.maxDays && daysUntilDue <= settings.rule3.maxDays) {
+            receivablesByRule.rule3.push(receivable);
+        }
+    });
+    
+    // Verificar se há contas em alguma regra
+    const hasReceivables = receivablesByRule.rule1.length > 0 || 
+                          receivablesByRule.rule2.length > 0 || 
+                          receivablesByRule.rule3.length > 0;
+    
+    if (!hasReceivables) {
+        container.style.display = 'none';
+        return;
+    }
+    
+    // Mostrar o container
+    container.style.display = 'block';
+    
+    // Renderizar cards por regra
+    let html = '';
+    
+    // Regra 1: Vencidas ou vencendo hoje (card piscando)
+    if (receivablesByRule.rule1.length > 0) {
+        html += `
+            <div class="receivables-alert-rule-group receivables-alert-pulse" data-rule="1" style="background: linear-gradient(135deg, ${settings.rule1.color} 0%, ${adjustColorBrightness(settings.rule1.color, -20)} 100%);">
+                <div class="receivables-alert-rule-header">
+                    <h4>⚠️ Contas Vencidas ou Vencendo Hoje</h4>
+                    <span class="receivables-alert-count">${receivablesByRule.rule1.length} conta(s)</span>
+                </div>
+                <div class="receivables-alert-cards-grid">
+                    ${receivablesByRule.rule1.map(rec => renderReceivableCard(rec)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Regra 2: Configurável
+    if (receivablesByRule.rule2.length > 0) {
+        html += `
+            <div class="receivables-alert-rule-group" data-rule="2" style="background: linear-gradient(135deg, ${settings.rule2.color} 0%, ${adjustColorBrightness(settings.rule2.color, -20)} 100%);">
+                <div class="receivables-alert-rule-header">
+                    <h4>📅 Contas a Vencer (1 a ${settings.rule2.maxDays} dias)</h4>
+                    <span class="receivables-alert-count">${receivablesByRule.rule2.length} conta(s)</span>
+                </div>
+                <div class="receivables-alert-cards-grid">
+                    ${receivablesByRule.rule2.map(rec => renderReceivableCard(rec)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    // Regra 3: Configurável
+    if (receivablesByRule.rule3.length > 0) {
+        html += `
+            <div class="receivables-alert-rule-group" data-rule="3" style="background: linear-gradient(135deg, ${settings.rule3.color} 0%, ${adjustColorBrightness(settings.rule3.color, -20)} 100%);">
+                <div class="receivables-alert-rule-header">
+                    <h4>📅 Contas a Vencer (${settings.rule2.maxDays + 1} a ${settings.rule3.maxDays} dias)</h4>
+                    <span class="receivables-alert-count">${receivablesByRule.rule3.length} conta(s)</span>
+                </div>
+                <div class="receivables-alert-cards-grid">
+                    ${receivablesByRule.rule3.map(rec => renderReceivableCard(rec)).join('')}
+                </div>
+            </div>
+        `;
+    }
+    
+    container.innerHTML = html;
+}
+
+// Renderizar card de conta a receber
+function renderReceivableCard(receivable) {
+    const clientName = receivable.clientName || 'Cliente não identificado';
+    const amountDue = receivable.amountDue || 0;
+    const dueDate = receivable.dueDate;
+    const daysUntilDue = getDaysUntilDue(dueDate);
+    
+    let dueDateFormatted = 'Não definida';
+    let daysText = '';
+    
+    if (dueDate) {
+        if (dueDate instanceof Date) {
+            dueDateFormatted = dueDate.toLocaleDateString('pt-BR');
+        } else {
+            dueDateFormatted = formatDate(new Date(dueDate).toISOString());
+        }
+    }
+    
+    if (daysUntilDue !== null) {
+        if (daysUntilDue < 0) {
+            daysText = `${Math.abs(daysUntilDue)} dia(s) vencido(s)`;
+        } else if (daysUntilDue === 0) {
+            daysText = 'Vence hoje';
+        } else {
+            daysText = `Faltam ${daysUntilDue} dia(s)`;
+        }
+    }
+    
+    const amountFormatted = formatCurrency(amountDue);
+    
+    return `
+        <div class="receivable-alert-card" onclick="openReceivableDetailsFromAlert('${receivable.id}')">
+            <div class="receivable-alert-card-header">
+                <h5>${clientName}</h5>
+            </div>
+            <div class="receivable-alert-card-body">
+                <div class="receivable-alert-amount">${amountFormatted}</div>
+                <div class="receivable-alert-date">Vencimento: ${dueDateFormatted}</div>
+                <div class="receivable-alert-days">${daysText}</div>
+            </div>
+        </div>
+    `;
+}
+
+// Abrir detalhes de conta a receber a partir do alerta da tela inicial
+function openReceivableDetailsFromAlert(receivableId) {
+    // Navegar para a seção de contas a receber
+    showSection('inventory');
+    // Aguardar um pouco para garantir que a seção foi carregada
+    setTimeout(() => {
+        // Mostrar a view de contas a receber
+        const receivablesView = document.getElementById('inventory-receivables-view');
+        if (receivablesView) {
+            // Esconder outras views
+            document.querySelectorAll('.inventory-view').forEach(view => {
+                view.classList.remove('active');
+            });
+            receivablesView.classList.add('active');
+            
+            // Carregar lista de contas a receber
+            loadReceivablesList();
+            
+            // Abrir modal de detalhes
+            setTimeout(() => {
+                openReceivableDetails(receivableId);
+            }, 300);
+        }
+    }, 100);
+}
+
+// Carregar e exibir lista de formas de pagamento
+function loadPaymentMethodsList() {
+    initializePaymentMethods();
+    const listContainer = document.getElementById('payment-methods-list');
+    if (!listContainer) return;
+    
+    if (paymentMethods.length === 0) {
+        listContainer.innerHTML = '<p style="text-align: center; padding: 40px; color: #666;">Nenhuma forma de pagamento cadastrada.</p>';
+        return;
+    }
+    
+    listContainer.innerHTML = paymentMethods.map(method => {
+        const isPixOrCash = method.name.toLowerCase() === 'pix' || method.name.toLowerCase() === 'dinheiro';
+        const showDeleteButton = !isPixOrCash;
+        const hasImage = method.image && method.name.toLowerCase() === 'pix';
+        const isInstallment = method.name.toLowerCase() === 'crédito parcelado' || method.name.toLowerCase() === 'credito parcelado';
+        const installments = method.installments || null;
+        
+        return `
+        <div class="payment-method-card ${!method.active ? 'inactive' : ''}">
+            ${hasImage ? `
+            <div class="payment-method-image-container">
+                <img src="${method.image}" alt="Imagem PIX" class="payment-method-image">
+            </div>
+            ` : ''}
+            <div class="payment-method-info">
+                <h3>${method.name}</h3>
+                ${method.description ? `<p>${method.description}</p>` : ''}
+                ${isInstallment && installments ? `<p class="payment-method-installments-info"><strong>Parcelas:</strong> até ${installments}x</p>` : ''}
+                <span class="payment-method-status ${method.active ? 'active' : 'inactive'}">
+                    ${method.active ? '✓ Ativa' : '✗ Inativa'}
+                </span>
+            </div>
+            <div class="payment-method-actions">
+                <button class="btn btn-edit" onclick="editPaymentMethod(${method.id})">✏️ Editar</button>
+                ${showDeleteButton ? `<button class="btn btn-delete" onclick="deletePaymentMethod(${method.id})">🗑️ Excluir</button>` : ''}
+            </div>
+        </div>
+        `;
+    }).join('');
+}
+
+// Mostrar formulário para adicionar forma de pagamento
+function showAddPaymentMethodForm() {
+    // Limpar completamente a variável de edição
+    editingPaymentMethodId = null;
+    
+    const formTitle = document.getElementById('payment-method-form-title');
+    if (formTitle) formTitle.textContent = 'Adicionar Forma de Pagamento';
+    
+    // Resetar formulário completamente
+    const form = document.getElementById('payment-method-form');
+    if (form) {
+        form.reset();
+    }
+    
+    // Garantir que o campo ID está vazio
+    const idInput = document.getElementById('payment-method-id');
+    if (idInput) {
+        idInput.value = '';
+        idInput.removeAttribute('value');
+    }
+    
+    const activeCheckbox = document.getElementById('payment-method-active');
+    if (activeCheckbox) activeCheckbox.checked = true;
+    
+    // Esconder campos específicos
+    const pixGroup = document.getElementById('payment-method-pix-group');
+    if (pixGroup) pixGroup.style.display = 'none';
+    
+    const imagePreviewContainer = document.getElementById('payment-method-image-preview-container');
+    if (imagePreviewContainer) imagePreviewContainer.style.display = 'none';
+    
+    const imageInput = document.getElementById('payment-method-image');
+    if (imageInput) imageInput.value = '';
+    
+    const pixTypeInput = document.getElementById('payment-method-pix-type');
+    if (pixTypeInput) {
+        pixTypeInput.value = 'cpf';
+        pixTypeInput.removeAttribute('required');
+    }
+    
+    const pixKeyInput = document.getElementById('payment-method-pix-key');
+    if (pixKeyInput) {
+        pixKeyInput.value = '';
+        pixKeyInput.removeAttribute('required');
+    }
+    
+    const pixRecipientInput = document.getElementById('payment-method-pix-recipient');
+    if (pixRecipientInput) {
+        pixRecipientInput.value = '';
+        pixRecipientInput.removeAttribute('required');
+    }
+    
+    const installmentsGroup = document.getElementById('payment-method-installments-group');
+    if (installmentsGroup) installmentsGroup.style.display = 'none';
+    
+    const installmentsInput = document.getElementById('payment-method-installments');
+    if (installmentsInput) {
+        installmentsInput.value = '';
+        installmentsInput.removeAttribute('required');
+    }
+    
+    // Limpar todas as flags de imagem
+    window._pendingPaymentMethodImage = null;
+    window._paymentMethodImageRemoved = false;
+    
+    // Mostrar view de registro
+    showPaymentMethodsRegisterView();
+}
+
+// Editar forma de pagamento
+function editPaymentMethod(id) {
+    const method = paymentMethods.find(m => m.id === id);
+    if (!method) return;
+    
+    editingPaymentMethodId = id;
+    const formTitle = document.getElementById('payment-method-form-title');
+    if (formTitle) formTitle.textContent = 'Editar Forma de Pagamento';
+    document.getElementById('payment-method-id').value = method.id;
+    document.getElementById('payment-method-name').value = method.name;
+    document.getElementById('payment-method-description').value = method.description || '';
+    document.getElementById('payment-method-active').checked = method.active;
+    
+    // Mostrar campo de imagem apenas para PIX
+    const isPix = method.name.toLowerCase() === 'pix';
+    const isInstallment = method.name.toLowerCase() === 'crédito parcelado' || method.name.toLowerCase() === 'credito parcelado';
+    const pixGroup = document.getElementById('payment-method-pix-group');
+    const imagePreviewContainer = document.getElementById('payment-method-image-preview-container');
+    const imagePreview = document.getElementById('payment-method-image-preview');
+    const imageInput = document.getElementById('payment-method-image');
+    const installmentsGroup = document.getElementById('payment-method-installments-group');
+    const installmentsInput = document.getElementById('payment-method-installments');
+    
+    const pixTypeInput = document.getElementById('payment-method-pix-type');
+    const pixKeyInput = document.getElementById('payment-method-pix-key');
+    const pixRecipientInput = document.getElementById('payment-method-pix-recipient');
+    
+    if (isPix) {
+        pixGroup.style.display = 'block';
+        if (method.image) {
+            imagePreview.src = method.image;
+            imagePreviewContainer.style.display = 'block';
+        } else {
+            imagePreviewContainer.style.display = 'none';
+        }
+        imageInput.value = '';
+        window._pendingPaymentMethodImage = null;
+        window._paymentMethodImageRemoved = false;
+        if (pixTypeInput) {
+            pixTypeInput.value = method.pixType || 'cpf';
+            pixTypeInput.setAttribute('required', 'required');
+        }
+        if (pixKeyInput) {
+            pixKeyInput.value = method.pixKey || '';
+            pixKeyInput.setAttribute('required', 'required');
+        }
+        if (pixRecipientInput) {
+            pixRecipientInput.value = method.pixRecipient || '';
+            pixRecipientInput.setAttribute('required', 'required');
+        }
+    } else {
+        pixGroup.style.display = 'none';
+        imagePreviewContainer.style.display = 'none';
+        imageInput.value = '';
+        window._pendingPaymentMethodImage = null;
+        window._paymentMethodImageRemoved = false;
+        if (pixTypeInput) {
+            pixTypeInput.value = 'cpf';
+            pixTypeInput.removeAttribute('required');
+        }
+        if (pixKeyInput) {
+            pixKeyInput.value = '';
+            pixKeyInput.removeAttribute('required');
+        }
+        if (pixRecipientInput) {
+            pixRecipientInput.value = '';
+            pixRecipientInput.removeAttribute('required');
+        }
+    }
+    
+    // Mostrar campo de parcelas apenas para Crédito Parcelado
+    if (isInstallment) {
+        installmentsGroup.style.display = 'block';
+        if (installmentsInput) {
+            installmentsInput.value = method.installments || '';
+            installmentsInput.setAttribute('required', 'required');
+        }
+    } else {
+        installmentsGroup.style.display = 'none';
+        if (installmentsInput) {
+            installmentsInput.value = '';
+            installmentsInput.removeAttribute('required');
+        }
+    }
+    
+    showPaymentMethodsRegisterView();
+}
+
+// Fechar modal de forma de pagamento
+function closePaymentMethodModal() {
+    document.getElementById('payment-method-modal').style.display = 'none';
+    editingPaymentMethodId = null;
+    window._pendingPaymentMethodImage = null;
+    window._paymentMethodImageRemoved = false;
+}
+
+// Configurar event listeners para formas de pagamento
+(function() {
+    // Configurar delegação de eventos para o formulário
+    document.addEventListener('submit', function(e) {
+        if (e.target && e.target.id === 'payment-method-form') {
+            e.preventDefault();
+            handleSubmitPaymentMethod(e);
+        }
+    });
+    
+    // Mostrar/esconder campos específicos quando o nome mudar
+    document.addEventListener('input', function(e) {
+        if (e.target && e.target.id === 'payment-method-name') {
+            const name = e.target.value.trim().toLowerCase();
+            const pixGroup = document.getElementById('payment-method-pix-group');
+            const installmentsGroup = document.getElementById('payment-method-installments-group');
+            
+            if (pixGroup) {
+                const pixTypeInput = document.getElementById('payment-method-pix-type');
+                const pixKeyInput = document.getElementById('payment-method-pix-key');
+                const pixRecipientInput = document.getElementById('payment-method-pix-recipient');
+                
+                if (name === 'pix') {
+                    pixGroup.style.display = 'block';
+                    // Adicionar required quando mostrar
+                    if (pixTypeInput) pixTypeInput.setAttribute('required', 'required');
+                    if (pixKeyInput) pixKeyInput.setAttribute('required', 'required');
+                    if (pixRecipientInput) pixRecipientInput.setAttribute('required', 'required');
+                } else {
+                    pixGroup.style.display = 'none';
+                    // Remover required quando esconder
+                    if (pixTypeInput) pixTypeInput.removeAttribute('required');
+                    if (pixKeyInput) pixKeyInput.removeAttribute('required');
+                    if (pixRecipientInput) pixRecipientInput.removeAttribute('required');
+                    
+                    const imageInput = document.getElementById('payment-method-image');
+                    if (imageInput) imageInput.value = '';
+                    const imagePreviewContainer = document.getElementById('payment-method-image-preview-container');
+                    if (imagePreviewContainer) imagePreviewContainer.style.display = 'none';
+                    window._pendingPaymentMethodImage = null;
+                    window._paymentMethodImageRemoved = false;
+                }
+            }
+            
+            // Campo de parcelas (Crédito Parcelado)
+            if (installmentsGroup) {
+                const installmentsInput = document.getElementById('payment-method-installments');
+                
+                if (name === 'crédito parcelado' || name === 'credito parcelado') {
+                    installmentsGroup.style.display = 'block';
+                    // Adicionar required quando mostrar
+                    if (installmentsInput) installmentsInput.setAttribute('required', 'required');
+                } else {
+                    installmentsGroup.style.display = 'none';
+                    // Remover required quando esconder
+                    if (installmentsInput) installmentsInput.removeAttribute('required');
+                    if (installmentsInput) installmentsInput.value = '';
+                }
+            }
+        }
+    });
+    
+    // Configurar upload de imagem
+    document.addEventListener('change', function(e) {
+        if (e.target && e.target.id === 'payment-method-image') {
+            handlePaymentMethodImageUpload(e);
+        }
+    });
+    
+    // Inicializar formas de pagamento quando a aplicação estiver pronta
+    setTimeout(function() {
+        initializePaymentMethods();
+    }, 2000);
+})();
+
+function handleSubmitPaymentMethod(event) {
+    event.preventDefault();
+    
+    // Remover required de campos escondidos antes de validar
+    const pixGroup = document.getElementById('payment-method-pix-group');
+    if (pixGroup && pixGroup.style.display === 'none') {
+        const pixTypeInput = document.getElementById('payment-method-pix-type');
+        const pixKeyInput = document.getElementById('payment-method-pix-key');
+        const pixRecipientInput = document.getElementById('payment-method-pix-recipient');
+        if (pixTypeInput) pixTypeInput.removeAttribute('required');
+        if (pixKeyInput) pixKeyInput.removeAttribute('required');
+        if (pixRecipientInput) pixRecipientInput.removeAttribute('required');
+    }
+    
+    const installmentsGroup = document.getElementById('payment-method-installments-group');
+    if (installmentsGroup && installmentsGroup.style.display === 'none') {
+        const installmentsInput = document.getElementById('payment-method-installments');
+        if (installmentsInput) installmentsInput.removeAttribute('required');
+    }
+    
+    try {
+        savePaymentMethod();
+    } catch (error) {
+        console.error('Erro ao salvar forma de pagamento:', error);
+        alert('Erro ao salvar forma de pagamento. Por favor, tente novamente.');
+    }
+}
+
+function savePaymentMethod() {
+    const idInput = document.getElementById('payment-method-id');
+    const id = idInput ? idInput.value.trim() : '';
+    const name = document.getElementById('payment-method-name').value.trim();
+    const description = document.getElementById('payment-method-description').value.trim();
+    const active = document.getElementById('payment-method-active').checked;
+    const isPix = name.toLowerCase() === 'pix';
+    const isInstallment = name.toLowerCase() === 'crédito parcelado' || name.toLowerCase() === 'credito parcelado';
+    
+    // Determinar se está editando - verificar tanto editingPaymentMethodId quanto o campo hidden
+    const hasEditingId = editingPaymentMethodId !== null && editingPaymentMethodId !== undefined && editingPaymentMethodId !== 0;
+    const hasIdField = id !== '' && id !== null && id !== undefined && id !== '0';
+    const isEditing = hasEditingId || hasIdField;
+    
+    // Obter o ID do método (priorizar editingPaymentMethodId, depois o campo hidden)
+    let methodId = null;
+    if (hasEditingId) {
+        methodId = editingPaymentMethodId;
+    } else if (hasIdField) {
+        const parsedId = parseInt(id);
+        if (!isNaN(parsedId) && parsedId > 0) {
+            methodId = parsedId;
+        }
+    }
+    
+    // Debug: verificar o estado
+    console.log('Salvando forma de pagamento:', {
+        name: name,
+        isEditing: isEditing,
+        editingPaymentMethodId: editingPaymentMethodId,
+        idField: id,
+        methodId: methodId,
+        totalMethods: paymentMethods.length
+    });
+    
+    if (!name) {
+        alert('Por favor, informe o nome da forma de pagamento.');
+        return;
+    }
+    
+    // Validar parcelas para Crédito Parcelado
+    let installments = null;
+    if (isInstallment) {
+        const installmentsValue = document.getElementById('payment-method-installments').value.trim();
+        if (!installmentsValue) {
+            alert('Por favor, informe a quantidade de parcelas para Crédito Parcelado.');
+            return;
+        }
+        const installmentsNum = parseInt(installmentsValue);
+        if (isNaN(installmentsNum) || installmentsNum < 1 || installmentsNum > 99) {
+            alert('A quantidade de parcelas deve ser um número entre 1 e 99.');
+            return;
+        }
+        installments = installmentsNum;
+    }
+    
+    // Verificar se já existe outra forma de pagamento com o mesmo nome (exceto a atual)
+    if (methodId) {
+        // Se está editando, verificar se existe outro método com o mesmo nome (exceto o atual)
+        const existingMethod = paymentMethods.find(m => 
+            m.name.toLowerCase() === name.toLowerCase() && 
+            m.id !== methodId
+        );
+        
+        if (existingMethod) {
+            alert('Já existe uma forma de pagamento com este nome.');
+            return;
+        }
+    } else {
+        // Se está criando novo, verificar se já existe com o mesmo nome
+        const existingMethod = paymentMethods.find(m => 
+            m.name.toLowerCase() === name.toLowerCase()
+        );
+        
+        if (existingMethod) {
+            alert('Já existe uma forma de pagamento com este nome.');
+            return;
+        }
+    }
+    
+    // Dados de PIX
+    let image = null;
+    let pixType = null;
+    let pixKey = null;
+    let pixRecipient = null;
+    if (isPix) {
+        // Garantir que os campos existem antes de usar
+        const pixTypeEl = document.getElementById('payment-method-pix-type');
+        const pixKeyEl = document.getElementById('payment-method-pix-key');
+        const pixRecipientEl = document.getElementById('payment-method-pix-recipient');
+
+        if (!pixTypeEl || !pixKeyEl || !pixRecipientEl) {
+            alert('Campos de configuração do PIX não foram encontrados na tela. Atualize a página e tente novamente.');
+            return;
+        }
+
+        if (window._paymentMethodImageRemoved) {
+            image = null;
+        } else if (window._pendingPaymentMethodImage) {
+            image = window._pendingPaymentMethodImage;
+        } else if (methodId) {
+            const existingMethod = paymentMethods.find(m => m.id === methodId);
+            if (existingMethod && existingMethod.image) {
+                image = existingMethod.image;
+            }
+        }
+
+        pixType = pixTypeEl.value;
+        pixKey = pixKeyEl.value.trim();
+        pixRecipient = pixRecipientEl.value.trim();
+
+        if (!pixKey || !pixRecipient) {
+            alert('Informe a chave PIX e o nome do recebedor.');
+            return;
+        }
+    } else {
+        // Limpar dados de PIX se não for PIX
+        image = null;
+        pixType = null;
+        pixKey = null;
+        pixRecipient = null;
+    }
+    
+    if (isEditing && methodId) {
+        // Editar existente
+        const index = paymentMethods.findIndex(m => {
+            // Comparar tanto por número quanto por string para garantir compatibilidade
+            return m.id === methodId || m.id === parseInt(methodId) || String(m.id) === String(methodId);
+        });
+        
+        if (index !== -1) {
+            const updatedMethod = {
+                id: methodId,
+                name: name,
+                description: description,
+                active: active
+            };
+            if (isPix) {
+                updatedMethod.image = image;
+                updatedMethod.pixType = pixType;
+                updatedMethod.pixKey = pixKey;
+                updatedMethod.pixRecipient = pixRecipient;
+            } else {
+                // Remover campos PIX se não for mais PIX
+                if (updatedMethod.image !== undefined) delete updatedMethod.image;
+                if (updatedMethod.pixType !== undefined) delete updatedMethod.pixType;
+                if (updatedMethod.pixKey !== undefined) delete updatedMethod.pixKey;
+                if (updatedMethod.pixRecipient !== undefined) delete updatedMethod.pixRecipient;
+            }
+            if (isInstallment) {
+                updatedMethod.installments = installments;
+            } else {
+                if (updatedMethod.installments !== undefined) delete updatedMethod.installments;
+            }
+            paymentMethods[index] = updatedMethod;
+        } else {
+            // Se não encontrou para editar, adicionar como novo
+            console.warn('Método não encontrado para editar, adicionando como novo');
+            const newMethod = {
+                id: Date.now(),
+                name: name,
+                description: description,
+                active: active
+            };
+            if (isPix) {
+                newMethod.image = image;
+                newMethod.pixType = pixType;
+                newMethod.pixKey = pixKey;
+                newMethod.pixRecipient = pixRecipient;
+            }
+            if (isInstallment) {
+                newMethod.installments = installments;
+            }
+            paymentMethods.push(newMethod);
+        }
+    } else {
+        // Adicionar nova
+        const newMethod = {
+            id: Date.now(),
+            name: name,
+            description: description,
+            active: active
+        };
+        if (isPix) {
+            newMethod.image = image;
+            newMethod.pixType = pixType;
+            newMethod.pixKey = pixKey;
+            newMethod.pixRecipient = pixRecipient;
+        }
+        if (isInstallment) {
+            newMethod.installments = installments;
+        }
+        
+        console.log('Adicionando nova forma de pagamento:', newMethod);
+        paymentMethods.push(newMethod);
+        console.log('Total de formas de pagamento após adicionar:', paymentMethods.length);
+    }
+    
+    // Salvar no localStorage
+    savePaymentMethods();
+    
+    // Verificar se foi salvo corretamente
+    const savedMethods = JSON.parse(localStorage.getItem('paymentMethods') || '[]');
+    console.log('Formas de pagamento salvas no localStorage:', savedMethods.length);
+    
+    // Recarregar a lista
+    loadPaymentMethodsList();
+    
+    // Mostrar mensagem de sucesso
+    alert(isEditing ? 'Forma de pagamento atualizada com sucesso!' : 'Forma de pagamento cadastrada com sucesso!');
+    
+    // Limpar flags e resetar formulário
+    window._pendingPaymentMethodImage = null;
+    window._paymentMethodImageRemoved = false;
+    editingPaymentMethodId = null;
+    
+    // Resetar formulário
+    const form = document.getElementById('payment-method-form');
+    if (form) {
+        form.reset();
+    }
+    
+    const idInputReset = document.getElementById('payment-method-id');
+    if (idInputReset) idInputReset.value = '';
+    
+    const activeCheckbox = document.getElementById('payment-method-active');
+    if (activeCheckbox) activeCheckbox.checked = true;
+    
+    const pixGroup = document.getElementById('payment-method-pix-group');
+    if (pixGroup) pixGroup.style.display = 'none';
+    
+    // Remover required dos campos PIX ao resetar
+    const pixTypeInput = document.getElementById('payment-method-pix-type');
+    const pixKeyInput = document.getElementById('payment-method-pix-key');
+    const pixRecipientInput = document.getElementById('payment-method-pix-recipient');
+    if (pixTypeInput) pixTypeInput.removeAttribute('required');
+    if (pixKeyInput) pixKeyInput.removeAttribute('required');
+    if (pixRecipientInput) pixRecipientInput.removeAttribute('required');
+    
+    const imagePreviewContainer = document.getElementById('payment-method-image-preview-container');
+    if (imagePreviewContainer) imagePreviewContainer.style.display = 'none';
+    
+    const installmentsGroup = document.getElementById('payment-method-installments-group');
+    if (installmentsGroup) installmentsGroup.style.display = 'none';
+    
+    const installmentsInput = document.getElementById('payment-method-installments');
+    if (installmentsInput) installmentsInput.removeAttribute('required');
+    
+    // Voltar para a lista
+    showPaymentMethodsList();
+}
+
+// Excluir forma de pagamento
+function deletePaymentMethod(id) {
+    const method = paymentMethods.find(m => m.id === id);
+    if (!method) return;
+    
+    if (!confirm(`Tem certeza que deseja excluir a forma de pagamento "${method.name}"?`)) {
+        return;
+    }
+    
+    paymentMethods = paymentMethods.filter(m => m.id !== id);
+    savePaymentMethods();
+    loadPaymentMethodsList();
+}
+
+// Upload de imagem do PIX
+function handlePaymentMethodImageUpload(event) {
+    const file = event.target.files[0];
+    if (!file) return;
+    
+    // Validar tipo
+    if (!file.type.startsWith('image/')) {
+        alert('Por favor, selecione um arquivo de imagem.');
+        return;
+    }
+    
+    // Validar tamanho (5MB)
+    if (file.size > 5 * 1024 * 1024) {
+        alert('A imagem deve ter no máximo 5MB.');
+        return;
+    }
+    
+    const reader = new FileReader();
+    reader.onload = function(e) {
+        const imageData = e.target.result;
+        window._pendingPaymentMethodImage = imageData;
+        window._paymentMethodImageRemoved = false;
+        
+        // Mostrar preview
+        const preview = document.getElementById('payment-method-image-preview');
+        const previewContainer = document.getElementById('payment-method-image-preview-container');
+        if (preview && previewContainer) {
+            preview.src = imageData;
+            previewContainer.style.display = 'block';
+        }
+    };
+    
+    reader.onerror = function() {
+        alert('Erro ao carregar a imagem. Por favor, tente novamente.');
+    };
+    
+    reader.readAsDataURL(file);
+}
+
+// Remover imagem do PIX
+function removePaymentMethodImage() {
+    if (confirm('Tem certeza que deseja remover a imagem do PIX?')) {
+        window._pendingPaymentMethodImage = null;
+        window._paymentMethodImageRemoved = true; // Marcar que a imagem foi removida
+        document.getElementById('payment-method-image-preview-container').style.display = 'none';
+        document.getElementById('payment-method-image').value = '';
+    }
+}
+
+// ==================== FUNÇÕES DE VENDAS ====================
+
+// Inicializar tela de vendas
+function initializeSalesScreen() {
+    if (currentUser) {
+        document.getElementById('sale-seller').value = currentUser.name || currentUser.username || 'Usuário';
+    }
+    updateSalesClock();
+    setInterval(updateSalesClock, 1000);
+    loadPaymentMethodsForSale();
+    loadCompanyLogo();
+    newSale();
+    // Focar no campo Código Barras após inicializar
+    setTimeout(() => {
+        const barcodeField = document.getElementById('sale-barcode');
+        if (barcodeField) {
+            barcodeField.focus();
+        }
+    }, 100);
+}
+
+// Maximizar tela de vendas
+function maximizeSalesScreen() {
+    const salesSection = document.querySelector('.sales-section');
+    if (salesSection) {
+        const element = salesSection;
+        if (element.requestFullscreen) {
+            element.requestFullscreen().catch(err => console.log(err));
+        } else if (element.webkitRequestFullscreen) {
+            element.webkitRequestFullscreen();
+        } else if (element.msRequestFullscreen) {
+            element.msRequestFullscreen();
+        }
+    }
+}
+
+// Atualizar relógio na tela de vendas
+function updateSalesClock() {
+    const now = new Date();
+    const time = now.toLocaleTimeString('pt-BR');
+    const clockEl = document.getElementById('sales-clock');
+    if (clockEl) clockEl.textContent = time;
+}
+
+// Carregar logo da empresa
+function loadCompanyLogo() {
+    const logoImg = document.getElementById('sales-company-logo');
+    const logoVideo = document.getElementById('sales-company-logo-video');
+    const placeholderEl = document.getElementById('sales-logo-placeholder');
+    
+    if (companyData.logo) {
+        // Detectar tipo automaticamente se não estiver definido
+        let logoType = companyData.logoType;
+        if (!logoType) {
+            if (companyData.logo.startsWith('data:video/')) {
+                logoType = 'video';
+                companyData.logoType = 'video';
+            } else {
+                logoType = 'image';
+                companyData.logoType = 'image';
+            }
+        }
+        
+        if (logoType === 'video') {
+            // Mostrar vídeo
+            if (logoVideo) {
+                logoVideo.src = companyData.logo;
+                logoVideo.style.display = 'block';
+            }
+            if (logoImg) {
+                logoImg.style.display = 'none';
+            }
+        } else {
+            // Mostrar imagem
+            if (logoImg) {
+                logoImg.src = companyData.logo;
+                logoImg.style.display = 'block';
+            }
+            if (logoVideo) {
+                logoVideo.style.display = 'none';
+            }
+        }
+        
+        if (placeholderEl) placeholderEl.style.display = 'none';
+    } else {
+        // Esconder ambos se não houver logo
+        if (logoImg) logoImg.style.display = 'none';
+        if (logoVideo) logoVideo.style.display = 'none';
+        
+        if (placeholderEl) {
+            placeholderEl.style.display = 'block';
+            placeholderEl.innerHTML = 'USIC<br>COMPOSITOR<br>MAICON COUTINHO';
+        }
+    }
+}
+
+function updatePaymentLogo() {
+    const pixData = getPixPaymentData();
+    if (pixData) {
+        showPixPayment(pixData);
+    } else {
+        hidePixPayment();
+    }
+}
+
+// Carregar formas de pagamento para a venda
+function loadPaymentMethodsForSale() {
+    initializePaymentMethods();
+    const activeMethods = paymentMethods.filter(m => m.active);
+    const select1 = document.getElementById('payment-method-1');
+    const select2 = document.getElementById('payment-method-2');
+    
+    [select1, select2].forEach(select => {
+        if (select) {
+            select.innerHTML = '<option value="">Selecione...</option>';
+            activeMethods.forEach(method => {
+                const option = document.createElement('option');
+                option.value = method.name;
+                option.textContent = method.name;
+                select.appendChild(option);
+            });
+        }
+    });
+    updatePaymentLogo();
+}
+
+// Nova venda
+function newSale() {
+    const saleNumber = generateSaleNumber();
+    const now = new Date();
+    const saleDate = now.toLocaleString('pt-BR');
+    
+    isProductSearchOpen = false;
+    isClientSearchOpen = false;
+    updateSalePanelVisibility();
+    
+    currentSale = {
+        id: Date.now(),
+        number: saleNumber,
+        date: saleDate,
+        client: null,
+        clientName: 'CLIENTE PADRÃO',
+        seller: currentUser ? (currentUser.name || currentUser.username) : 'Usuário',
+        items: [],
+        paymentMethod1: '',
+        paymentValue1: 0,
+        paymentMethod2: '',
+        paymentValue2: 0,
+        installments1: null,
+        installmentValue1: null,
+        installments2: null,
+        installmentValue2: null,
+        discount: 0,
+        status: 'open',
+        createdAt: now.toISOString(),
+        dueDate: null,
+        installments: null,
+        interest: 0,
+        interestType: 'percent'
+    };
+    
+    // Resetar desconto global
+    globalDiscount = 0;
+    discountType = 'percent';
+    const toggle = document.getElementById('discount-type-toggle');
+    if (toggle) {
+        toggle.checked = false;
+    }
+    updateDiscountLabel();
+    
+    document.getElementById('sale-number').value = saleNumber;
+    document.getElementById('sale-date').value = saleDate;
+    document.getElementById('sale-client').value = 'CLIENTE PADRÃO';
+    document.getElementById('sale-seller').value = currentSale.seller;
+    document.getElementById('sale-quantity').value = 1;
+    document.getElementById('sale-description').value = '';
+    document.getElementById('sale-barcode').value = '';
+    document.getElementById('sale-unit-value').value = '';
+    document.getElementById('sale-discount').value = 0;
+    // Limpar campos de venda a prazo
+    const creditFields = document.getElementById('credit-payment-fields');
+    if (creditFields) creditFields.style.display = 'none';
+    document.getElementById('sale-due-date').value = '';
+    document.getElementById('sale-installments').value = '1';
+    document.getElementById('sale-interest').value = '0';
+    const interestToggle = document.getElementById('interest-type-toggle');
+    if (interestToggle) interestToggle.checked = false;
+    updateInterestLabel();
+    document.getElementById('payment-method-1').value = '';
+    document.getElementById('payment-value-1').value = '';
+    const paymentValue1 = document.getElementById('payment-value-1');
+    if (paymentValue1) {
+        paymentValue1.disabled = false;
+        paymentValue1.style.backgroundColor = '';
+        paymentValue1.style.cursor = '';
+    }
+    
+    document.getElementById('payment-method-2').value = '';
+    document.getElementById('payment-value-2').value = '';
+    const paymentValue2 = document.getElementById('payment-value-2');
+    if (paymentValue2) {
+        paymentValue2.disabled = false;
+        paymentValue2.style.backgroundColor = '';
+        paymentValue2.style.cursor = '';
+    }
+    updatePaymentLogo();
+    
+    updateSaleItemsList();
+    calculateTotals();
+    
+    // Focar no campo Código Barras após criar nova venda
+    setTimeout(() => {
+        const barcodeField = document.getElementById('sale-barcode');
+        if (barcodeField) {
+            barcodeField.focus();
+            barcodeField.select();
+        }
+    }, 100);
+}
+
+// Gerar número da venda
+function generateSaleNumber() {
+    const lastSale = sales.length > 0 ? sales[sales.length - 1] : null;
+    if (lastSale && lastSale.number) {
+        const num = parseInt(lastSale.number) || 0;
+        return String(num + 1).padStart(6, '0');
+    }
+    return '000001';
+}
+
+// Buscar produto por descrição
+function searchProductByDescription(event) {
+    if (event.key === 'Enter') {
+        const description = event.target.value.trim();
+        if (!description) return;
+        
+        const product = products.find(p => 
+            (p.nome && p.nome.toLowerCase().includes(description.toLowerCase())) ||
+            (p.name && p.name.toLowerCase().includes(description.toLowerCase())) ||
+            (p.descricao && p.descricao.toLowerCase().includes(description.toLowerCase())) ||
+            (p.description && p.description.toLowerCase().includes(description.toLowerCase()))
+        );
+        
+        if (product) {
+            addProductToSale(product);
+        } else {
+            alert('Produto não encontrado!');
+        }
+    }
+}
+
+
+// Handler para Enter no código de barras
+function handleBarcodeEnter(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const barcode = event.target.value.trim();
+        if (!barcode) return;
+        
+        if (barcode === '1') {
+            document.getElementById('sale-description').value = 'DIVERSOS';
+            document.getElementById('sale-barcode').value = '';
+            document.getElementById('sale-unit-value').value = '';
+            document.getElementById('sale-quantity').value = 1;
+            setTimeout(() => {
+                const unitField = document.getElementById('sale-unit-value');
+                if (unitField) {
+                    unitField.focus();
+                    unitField.select();
+                }
+            }, 50);
+            return;
+        }
+        
+        const product = findProductByBarcode(barcode);
+        if (product) {
+            // Ler a quantidade ANTES de preencher os campos (para não perder o valor)
+            const currentQuantity = parseFloat(document.getElementById('sale-quantity').value) || 1;
+            fillSaleFieldsForProduct(product);
+            // Restaurar a quantidade que estava no campo antes de preencher
+            document.getElementById('sale-quantity').value = currentQuantity;
+            addProductToSale(product);
+        } else {
+            alert('Produto não encontrado!');
+            event.target.select();
+        }
+    }
+}
+
+// Verificar estoque e solicitar confirmação se necessário
+// requestedQuantity: quantidade total do produto na venda (soma de todos os itens com o mesmo productId)
+function checkStockAndConfirm(product, requestedQuantity) {
+    // Se não há produto ou não tem ID, não precisa verificar estoque
+    if (!product || !product.id) {
+        return true;
+    }
+    
+    // Buscar produto atualizado do array de produtos
+    const currentProduct = products.find(p => p.id === product.id);
+    if (!currentProduct) {
+        return true; // Produto não encontrado, permitir continuar
+    }
+    
+    const currentStock = currentProduct.quantidadeEstoque || 0;
+    
+    // Se a quantidade total solicitada é maior que o estoque, mostrar alerta
+    if (requestedQuantity > currentStock) {
+        const message = `A quantidade solicitada (${requestedQuantity}) é maior que o estoque atual (${currentStock}). Deseja incluir o produto no pedido, resultando em estoque negativo?`;
+        return confirm(message);
+    }
+    
+    return true;
+}
+
+// Adicionar produto à venda
+function addProductToSale(product) {
+    if (!currentSale) newSale();
+    
+    const quantity = parseFloat(document.getElementById('sale-quantity').value) || 1;
+    
+    // Calcular quantidade total do produto na venda (soma de todos os itens com o mesmo productId)
+    let totalQuantityInSale = quantity;
+    if (product && product.id && currentSale && currentSale.items) {
+        const existingItems = currentSale.items.filter(item => item.productId === product.id);
+        const existingQuantity = existingItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+        totalQuantityInSale = existingQuantity + quantity;
+    }
+    
+    // Validar estoque antes de adicionar (usando quantidade total)
+    if (!checkStockAndConfirm(product, totalQuantityInSale)) {
+        return; // Usuário cancelou a inclusão
+    }
+    // Usar campos corretos: precoVenda ou salePrice
+    const precoVenda = product ? (product.precoVenda || product.salePrice || 0) : 0;
+    const unitValue = parseFloat(document.getElementById('sale-unit-value').value) || precoVenda;
+    const discount = parseFloat(document.getElementById('sale-discount').value) || 0;
+    
+    // Usar campos corretos: nome ou name, descricao ou description
+    const nomeProduto = product ? (product.nome || product.name || 'DIVERSOS') : 'DIVERSOS';
+    const descricaoProduto = product ? (product.descricao || product.description || '') : '';
+    
+    // Calcular total do item baseado no tipo de desconto atual
+    let itemTotal = unitValue * quantity;
+    if (discount > 0) {
+        if (discountType === 'percent') {
+            // Desconto percentual
+            itemTotal = itemTotal * (1 - discount / 100);
+        } else {
+            // Desconto em reais (aplicado sobre o total do item)
+            itemTotal = itemTotal - discount;
+        }
+    }
+    // Garantir que não fique negativo
+    itemTotal = Math.max(0, itemTotal);
+    
+    const item = {
+        id: Date.now(),
+        productId: product ? product.id : null,
+        name: nomeProduto,
+        description: descricaoProduto,
+        quantity: quantity,
+        unitValue: unitValue,
+        discount: discount,
+        discountType: discountType, // Armazenar o tipo de desconto usado
+        total: itemTotal
+    };
+    
+    currentSale.items.push(item);
+    saleItemIndex = -1; // Reset seleção
+    
+    // Limpar campos (zerar desconto após adicionar item)
+    document.getElementById('sale-quantity').value = 1;
+    document.getElementById('sale-description').value = '';
+    document.getElementById('sale-barcode').value = '';
+    document.getElementById('sale-unit-value').value = '';
+    document.getElementById('sale-discount').value = 0;
+    // Zerar desconto global também quando adicionar item (para não afetar o total)
+    globalDiscount = 0;
+    
+    focusDescriptionField();
+    
+    // Atualizar imagem do produto (usar campo imagem ou image)
+    const imagemProduto = product ? (product.imagem || product.image || '') : '';
+    if (product && imagemProduto) {
+        document.getElementById('sale-product-img').src = imagemProduto;
+        document.getElementById('sale-product-img').style.display = 'block';
+        document.getElementById('sale-product-img-placeholder').style.display = 'none';
+    } else {
+        document.getElementById('sale-product-img').style.display = 'none';
+        document.getElementById('sale-product-img-placeholder').style.display = 'block';
+    }
+    
+    updateSaleItemsList();
+    calculateTotals();
+    // Focar no campo Código Barras após adicionar
+    setTimeout(() => {
+        const barcodeField = document.getElementById('sale-barcode');
+        if (barcodeField) {
+            barcodeField.focus();
+        }
+    }, 100);
+}
+
+// Atualizar lista de itens da venda
+function updateSaleItemsList() {
+    const container = document.getElementById('sale-items-container');
+    if (!container) return;
+    
+    if (!currentSale || currentSale.items.length === 0) {
+        container.innerHTML = '<p class="empty-message">Nenhum item adicionado</p>';
+        return;
+    }
+    
+    // Atualizar lista no centro (Itens da Venda)
+    container.innerHTML = currentSale.items.map((item, index) => {
+        const isSelected = saleItemIndex === index;
+        // Determinar o tipo de desconto do item (usar o armazenado ou o atual)
+        const itemDiscountType = item.discountType || discountType;
+        const discountDisplay = item.discount > 0 
+            ? (itemDiscountType === 'percent' 
+                ? `Desc: ${item.discount}%` 
+                : `Desc: R$ ${item.discount.toFixed(2)}`)
+            : '';
+        
+        return `
+        <div class="sale-item ${isSelected ? 'sale-item-selected' : ''}" onclick="selectSaleItem(${index})">
+            <div class="sale-item-info">
+                <strong>${item.name || 'DIVERSOS'}</strong>
+                <span>Qtd: ${item.quantity} x R$ ${item.unitValue.toFixed(2)}</span>
+                ${discountDisplay ? `<span class="discount-badge">${discountDisplay}</span>` : ''}
+            </div>
+            <div class="sale-item-total">R$ ${item.total.toFixed(2)}</div>
+        </div>
+    `;
+    }).join('');
+}
+
+// Selecionar item da venda
+function selectSaleItem(index) {
+    // Permitir selecionar item (mesmo sem permissão de edição, pode ter permissão para excluir)
+    saleItemIndex = index;
+    const item = currentSale.items[index];
+    document.getElementById('sale-quantity').value = item.quantity;
+    document.getElementById('sale-description').value = item.name;
+    document.getElementById('sale-unit-value').value = item.unitValue;
+    document.getElementById('sale-discount').value = item.discount;
+    
+    // Atualizar o tipo de desconto global e o toggle para refletir o tipo do item selecionado
+    if (item.discountType) {
+        discountType = item.discountType;
+        const toggle = document.getElementById('discount-type-toggle');
+        toggle.checked = (discountType === 'real');
+        updateDiscountLabel();
+    }
+    
+    // Atualizar visual para mostrar item selecionado
+    updateSaleItemsList();
+    // Focar no campo de quantidade após selecionar
+    setTimeout(() => {
+        document.getElementById('sale-quantity').focus();
+        document.getElementById('sale-quantity').select();
+    }, 100);
+}
+
+// Calcular total do item
+function calculateItemTotal() {
+    // Esta função recalcula o total do item quando o desconto ou valor unitário mudam
+    if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+        const item = currentSale.items[saleItemIndex];
+        const quantity = parseFloat(document.getElementById('sale-quantity').value) || item.quantity;
+        const unitValue = parseFloat(document.getElementById('sale-unit-value').value) || item.unitValue;
+        const discount = parseFloat(document.getElementById('sale-discount').value) || 0;
+        
+        // Verificar se houve alteração nos valores
+        const quantityChanged = quantity !== item.quantity;
+        const unitValueChanged = unitValue !== item.unitValue;
+        const discountChanged = discount !== item.discount;
+        
+        // Verificar permissão para editar item (apenas quando tentar alterar valores)
+        if ((quantityChanged || unitValueChanged || discountChanged) && !hasSalesPermission('vender_editarItem')) {
+            // Restaurar valores originais do item
+            document.getElementById('sale-quantity').value = item.quantity;
+            document.getElementById('sale-unit-value').value = item.unitValue;
+            document.getElementById('sale-discount').value = item.discount;
+            alert('⚠️ Você não tem permissão para editar itens da venda.');
+            return;
+        }
+        
+        // Validar estoque se há um produto associado
+        if (item.productId) {
+            // Calcular quantidade total do produto na venda (soma de todos os itens com o mesmo productId)
+            let totalQuantityInSale = quantity;
+            if (currentSale && currentSale.items) {
+                const existingItems = currentSale.items.filter(i => i.productId === item.productId && i.id !== item.id);
+                const existingQuantity = existingItems.reduce((sum, i) => sum + (i.quantity || 0), 0);
+                totalQuantityInSale = existingQuantity + quantity;
+            }
+            
+            const product = products.find(p => p.id === item.productId);
+            if (product && !checkStockAndConfirm(product, totalQuantityInSale)) {
+                // Usuário cancelou, restaurar quantidade anterior
+                document.getElementById('sale-quantity').value = item.quantity;
+                return;
+            }
+        }
+        
+        // Sempre usar o tipo de desconto atual (permitir alteração do tipo de desconto)
+        const itemDiscountType = discountType;
+        
+        // Calcular total baseado no tipo de desconto atual
+        let itemTotal = unitValue * quantity;
+        if (discount > 0) {
+            if (itemDiscountType === 'percent') {
+                itemTotal = itemTotal * (1 - discount / 100);
+            } else {
+                itemTotal = itemTotal - discount;
+            }
+        }
+        itemTotal = Math.max(0, itemTotal);
+        
+        // Atualizar item com os novos valores
+        item.quantity = quantity;
+        item.unitValue = unitValue;
+        item.discount = discount;
+        // Sempre atualizar o tipo de desconto para permitir alteração
+        item.discountType = discountType;
+        item.total = itemTotal;
+        
+        updateSaleItemsList();
+        calculateTotals();
+    }
+}
+
+// Calcular totais da venda
+function calculateTotals() {
+    if (!currentSale) return;
+    
+    // Calcular total bruto (soma dos valores unitários * quantidade, sem descontos)
+    const totalGross = currentSale.items.reduce((sum, item) => {
+        return sum + (item.unitValue * item.quantity);
+    }, 0);
+    
+    // Calcular total com descontos individuais dos itens
+    const totalWithItemDiscounts = currentSale.items.reduce((sum, item) => {
+        return sum + item.total;
+    }, 0);
+    
+    // Calcular desconto total sobre os itens (diferença entre bruto e com descontos individuais)
+    const totalDiscountOnItems = totalGross - totalWithItemDiscounts;
+    
+    const totalItems = currentSale.items.reduce((sum, item) => sum + item.quantity, 0);
+    
+    // Aplicar desconto global sobre o total COM descontos individuais já aplicados
+    let totalLiquid = totalWithItemDiscounts;
+    let totalDiscountOnLiquid = 0;
+    
+    if (globalDiscount > 0) {
+        if (discountType === 'percent') {
+            // Desconto percentual: aplica % sobre o total com descontos individuais
+            totalDiscountOnLiquid = totalWithItemDiscounts * (globalDiscount / 100);
+            totalLiquid = totalWithItemDiscounts * (1 - globalDiscount / 100);
+        } else {
+            // Desconto em reais: subtrai valor em R$ do total com descontos individuais
+            totalDiscountOnLiquid = globalDiscount;
+            totalLiquid = totalWithItemDiscounts - globalDiscount;
+        }
+    }
+    // Garantir que não fique negativo
+    totalLiquid = Math.max(0, totalLiquid);
+    totalDiscountOnLiquid = Math.max(0, totalDiscountOnLiquid);
+    
+    const payment1 = parseFloat(document.getElementById('payment-value-1').value) || 0;
+    const payment2 = parseFloat(document.getElementById('payment-value-2').value) || 0;
+    const totalPaid = payment1 + payment2;
+    
+    document.getElementById('total-gross').value = formatCurrency(totalGross);
+    document.getElementById('total-items').value = totalItems;
+    
+    currentTotalLiquid = totalLiquid;
+    currentTotalPaid = totalPaid;
+    currentRemainingTotal = Math.max(0, totalLiquid - totalPaid);
+    updateTotalDisplay(totalLiquid, totalPaid);
+    
+    // Atualizar card de descontos totais
+    const discountCard = document.getElementById('discount-total-card');
+    const discountItemsTotal = document.getElementById('discount-items-total');
+    const discountLiquidTotal = document.getElementById('discount-liquid-total');
+    
+    // Mostrar card apenas se houver algum desconto
+    if (totalDiscountOnItems > 0 || totalDiscountOnLiquid > 0) {
+        discountCard.style.display = 'flex';
+        
+        // Formatar desconto sobre itens
+        if (totalDiscountOnItems > 0) {
+            discountItemsTotal.textContent = `Sobre itens: ${formatCurrency(totalDiscountOnItems)}`;
+        } else {
+            discountItemsTotal.textContent = `Sobre itens: R$ 0,00`;
+        }
+        
+        // Formatar desconto sobre total líquido
+        if (totalDiscountOnLiquid > 0) {
+            const discountTypeText = discountType === 'percent' ? '%' : 'R$';
+            discountLiquidTotal.textContent = `Sobre total líquido: ${formatCurrency(totalDiscountOnLiquid)}`;
+        } else {
+            discountLiquidTotal.textContent = `Sobre total líquido: R$ 0,00`;
+        }
+    } else {
+        discountCard.style.display = 'none';
+    }
+    
+    updatePaymentLogo();
+    
+    // Atualizar limites dos campos de pagamento
+    updatePaymentFieldsLimits();
+}
+
+// Validar valor de pagamento ao digitar
+function validatePaymentValue(index) {
+    const paymentValueInput = document.getElementById(`payment-value-${index}`);
+    const paymentMethodSelect = document.getElementById(`payment-method-${index}`);
+    
+    if (!paymentValueInput || !paymentMethodSelect) return;
+    
+    // Se o campo estiver bloqueado (parcelamento), não validar
+    if (paymentValueInput.disabled) return;
+    
+    const selectedMethod = paymentMethodSelect.value || '';
+    const isDinheiro = selectedMethod.toLowerCase() === 'dinheiro';
+    const inputValue = parseFloat(paymentValueInput.value) || 0;
+    
+    // Para Dinheiro, não validar máximo (permite troco)
+    if (isDinheiro) {
+        return;
+    }
+    
+    // Calcular total líquido
+    if (!currentSale) return;
+    
+    const totalGross = currentSale.items.reduce((sum, item) => {
+        return sum + (item.unitValue * item.quantity);
+    }, 0);
+    
+    const totalWithItemDiscounts = currentSale.items.reduce((sum, item) => {
+        return sum + item.total;
+    }, 0);
+    
+    let totalLiquid = totalWithItemDiscounts;
+    if (globalDiscount > 0) {
+        if (discountType === 'percent') {
+            totalLiquid = totalWithItemDiscounts * (1 - globalDiscount / 100);
+        } else {
+            totalLiquid = totalWithItemDiscounts - globalDiscount;
+        }
+    }
+    totalLiquid = Math.max(0, totalLiquid);
+    
+    // Calcular valores já pagos (exceto o campo atual)
+    const payment1 = index === 1 ? 0 : (parseFloat(document.getElementById('payment-value-1').value) || 0);
+    const payment2 = index === 2 ? 0 : (parseFloat(document.getElementById('payment-value-2').value) || 0);
+    const otherPayments = payment1 + payment2;
+    
+    // Calcular o que falta pagar
+    const remaining = Math.max(0, totalLiquid - otherPayments);
+    
+    // Validar se o valor excede o que falta pagar
+    if (inputValue > remaining) {
+        alert(`O valor informado (${formatCurrency(inputValue)}) excede o valor que falta pagar (${formatCurrency(remaining)}).`);
+        paymentValueInput.value = remaining.toFixed(2);
+    }
+}
+
+function updateTotalDisplay(totalLiquid, totalPaid) {
+    const totalDisplay = document.getElementById('total-display');
+    const totalLabel = document.getElementById('total-display-label');
+    const totalValue = document.getElementById('total-liquid');
+    const totalPaidValue = document.getElementById('total-paid-value');
+    if (!totalDisplay || !totalLabel || !totalValue) return;
+    
+    const hasItems = currentSale && currentSale.items && currentSale.items.length > 0;
+    totalDisplay.classList.remove('total-display-red', 'total-display-blue');
+    
+    if (totalPaidValue) {
+        totalPaidValue.textContent = formatCurrency(totalPaid);
+    }
+    
+    if (totalPaid > totalLiquid && hasItems) {
+        const troco = totalPaid - totalLiquid;
+        totalLabel.textContent = 'TOTAL TROCO';
+        totalValue.textContent = formatCurrency(Math.max(0, troco));
+        totalDisplay.classList.add('total-display-blue');
+    } else {
+        totalLabel.textContent = 'Total a Pagar';
+        const displayValue = hasItems ? Math.max(0, totalLiquid - totalPaid) : 0;
+        totalValue.textContent = formatCurrency(displayValue);
+        if (hasItems && displayValue > 0) {
+            totalDisplay.classList.add('total-display-red');
+        } else {
+            totalDisplay.classList.add('total-display-blue');
+        }
+    }
+}
+
+// Atualizar forma de pagamento
+// Variáveis para controle de parcelamento
+let currentInstallmentPaymentIndex = null; // 1 ou 2
+let pendingInstallmentData = null; // Dados do parcelamento pendente
+
+function updatePaymentMethod(index) {
+    // Verificar permissão para alterar forma de pagamento
+    if (!hasSalesPermission('formaPagamento_alterar')) {
+        alert('⚠️ Você não tem permissão para alterar a forma de pagamento.');
+        // Restaurar valor anterior
+        const selectElement = document.getElementById(`payment-method-${index}`);
+        if (selectElement && currentSale) {
+            if (index === 1) {
+                selectElement.value = currentSale.paymentMethod1 || '';
+            } else if (index === 2) {
+                selectElement.value = currentSale.paymentMethod2 || '';
+            }
+        }
+        return;
+    }
+    
+    const selectElement = document.getElementById(`payment-method-${index}`);
+    const selectedMethod = selectElement ? selectElement.value : '';
+    
+    // Verificar se é "A Prazo" e mostrar/ocultar campos
+    const isAPrazo = selectedMethod && selectedMethod.toLowerCase().includes('a prazo');
+    const creditFields = document.getElementById('credit-payment-fields');
+    if (creditFields) {
+        creditFields.style.display = isAPrazo ? 'block' : 'none';
+    }
+    
+    // Se não for "A Prazo", limpar campos
+    if (!isAPrazo) {
+        document.getElementById('sale-due-date').value = '';
+        document.getElementById('sale-installments').value = '1';
+        document.getElementById('sale-interest').value = '0';
+        const interestToggle = document.getElementById('interest-type-toggle');
+        if (interestToggle) interestToggle.checked = false;
+        updateInterestLabel();
+    } else {
+        // Se for "A Prazo", definir data padrão (30 dias)
+        const dueDateInput = document.getElementById('sale-due-date');
+        if (dueDateInput && !dueDateInput.value) {
+            const today = new Date();
+            today.setDate(today.getDate() + 30);
+            dueDateInput.value = today.toISOString().split('T')[0];
+        }
+    }
+    
+    // Verificar se é Crédito Parcelado
+    if (selectedMethod && (selectedMethod.toLowerCase().includes('crédito parcelado') || 
+                           selectedMethod.toLowerCase().includes('credito parcelado'))) {
+        // Buscar método de pagamento para obter número máximo de parcelas
+        const paymentMethod = paymentMethods.find(m => 
+            m.name.toLowerCase() === selectedMethod.toLowerCase() && m.active
+        );
+        
+        const maxInstallments = paymentMethod ? (paymentMethod.installments || 12) : 12;
+        
+        // Armazenar índice do pagamento atual
+        currentInstallmentPaymentIndex = index;
+        
+        // Limpar dados pendentes anteriores
+        pendingInstallmentData = null;
+        
+        // Mostrar modal de parcelamento
+        openInstallmentModal(maxInstallments);
+    } else {
+        // Se não for Crédito Parcelado, limpar dados de parcelamento para este índice
+        if (currentSale) {
+            if (index === 1) {
+                currentSale.installments1 = null;
+                currentSale.installmentValue1 = null;
+            } else if (index === 2) {
+                currentSale.installments2 = null;
+                currentSale.installmentValue2 = null;
+            }
+        }
+        
+        // Desbloquear campo de valor ao alterar forma de pagamento
+        const paymentValueInput = document.getElementById(`payment-value-${index}`);
+        if (paymentValueInput) {
+            paymentValueInput.disabled = false;
+            paymentValueInput.style.backgroundColor = '';
+            paymentValueInput.style.cursor = '';
+        }
+        
+    calculateTotals();
+    }
+    
+    // Se a seleção foi limpa (valor vazio), também limpar parcelamento
+    if (!selectedMethod && currentSale) {
+        if (index === 1) {
+            currentSale.installments1 = null;
+            currentSale.installmentValue1 = null;
+        } else if (index === 2) {
+            currentSale.installments2 = null;
+            currentSale.installmentValue2 = null;
+        }
+        
+        // Desbloquear campo de valor
+        const paymentValueInput = document.getElementById(`payment-value-${index}`);
+        if (paymentValueInput) {
+            paymentValueInput.disabled = false;
+            paymentValueInput.style.backgroundColor = '';
+            paymentValueInput.style.cursor = '';
+        }
+    }
+    
+    // Atualizar limites dos campos de pagamento
+    updatePaymentFieldsLimits();
+}
+
+// Atualizar limites dos campos de pagamento
+function updatePaymentFieldsLimits() {
+    if (!currentSale) return;
+    
+    // Calcular total líquido
+    const totalGross = currentSale.items.reduce((sum, item) => {
+        return sum + (item.unitValue * item.quantity);
+    }, 0);
+    
+    const totalWithItemDiscounts = currentSale.items.reduce((sum, item) => {
+        return sum + item.total;
+    }, 0);
+    
+    let totalLiquid = totalWithItemDiscounts;
+    if (globalDiscount > 0) {
+        if (discountType === 'percent') {
+            totalLiquid = totalWithItemDiscounts * (1 - globalDiscount / 100);
+        } else {
+            totalLiquid = totalWithItemDiscounts - globalDiscount;
+        }
+    }
+    totalLiquid = Math.max(0, totalLiquid);
+    
+    // Atualizar limites para cada campo de pagamento
+    [1, 2].forEach(index => {
+        const paymentMethodSelect = document.getElementById(`payment-method-${index}`);
+        const paymentValueInput = document.getElementById(`payment-value-${index}`);
+        
+        if (!paymentMethodSelect || !paymentValueInput) return;
+        
+        const selectedMethod = paymentMethodSelect.value || '';
+        const isDinheiro = selectedMethod.toLowerCase() === 'dinheiro';
+        
+        // Se o campo estiver bloqueado (parcelamento), não atualizar
+        if (paymentValueInput.disabled) {
+            return;
+        }
+        
+        // Calcular valores já pagos (exceto o campo atual)
+        const payment1 = index === 1 ? 0 : (parseFloat(document.getElementById('payment-value-1').value) || 0);
+        const payment2 = index === 2 ? 0 : (parseFloat(document.getElementById('payment-value-2').value) || 0);
+        const otherPayments = payment1 + payment2;
+        
+        // Calcular o que falta pagar
+        const remaining = Math.max(0, totalLiquid - otherPayments);
+        
+        // Para Dinheiro, não definir máximo (permite troco)
+        if (isDinheiro) {
+            paymentValueInput.removeAttribute('max');
+        } else {
+            // Para outras formas, limitar ao que falta pagar
+            paymentValueInput.setAttribute('max', remaining.toFixed(2));
+        }
+    });
+}
+
+// Abrir modal de parcelamento
+function openInstallmentModal(maxInstallments) {
+    const modal = document.getElementById('installment-modal');
+    const maxValueSpan = document.getElementById('installment-max-value');
+    const quantityInput = document.getElementById('installment-quantity');
+    
+    if (!modal) return;
+    
+    // Atualizar valor máximo
+    if (maxValueSpan) {
+        maxValueSpan.textContent = maxInstallments;
+    }
+    
+    // Configurar max do input
+    if (quantityInput) {
+        quantityInput.max = maxInstallments;
+        quantityInput.value = '';
+    }
+    
+    // Limpar campo de valor
+    const valueInput = document.getElementById('installment-value');
+    if (valueInput) {
+        valueInput.value = '';
+    }
+    
+    // Mostrar modal
+    modal.style.display = 'block';
+    
+    // Focar no campo de quantidade
+    setTimeout(() => {
+        if (quantityInput) {
+            quantityInput.focus();
+        }
+    }, 100);
+}
+
+// Fechar modal de parcelamento
+function closeInstallmentModal(clearFields = true) {
+    const modal = document.getElementById('installment-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+    
+    // Se cancelou (clearFields = true), limpar seleção do método de pagamento e desbloquear campo
+    if (clearFields && currentInstallmentPaymentIndex) {
+        const selectElement = document.getElementById(`payment-method-${currentInstallmentPaymentIndex}`);
+        if (selectElement) {
+            selectElement.value = '';
+        }
+        
+        // Desbloquear campo de valor
+        const paymentValueInput = document.getElementById(`payment-value-${currentInstallmentPaymentIndex}`);
+        if (paymentValueInput) {
+            paymentValueInput.disabled = false;
+            paymentValueInput.style.backgroundColor = '';
+            paymentValueInput.style.cursor = '';
+            paymentValueInput.value = '';
+        }
+        
+        currentInstallmentPaymentIndex = null;
+    } else if (!clearFields) {
+        // Se não for para limpar, apenas limpar o índice sem tocar nos campos
+        currentInstallmentPaymentIndex = null;
+    }
+    
+    pendingInstallmentData = null;
+}
+
+// Processar formulário de parcelamento
+function handleInstallmentSubmit(event) {
+    event.preventDefault();
+    
+    if (!currentInstallmentPaymentIndex) {
+        alert('Erro: Índice de pagamento não identificado.');
+        closeInstallmentModal();
+        return;
+    }
+    
+    const quantity = parseInt(document.getElementById('installment-quantity').value);
+    const value = parseFloat(document.getElementById('installment-value').value);
+    
+    // Validar quantidade
+    const selectElement = document.getElementById(`payment-method-${currentInstallmentPaymentIndex}`);
+    const selectedMethod = selectElement ? selectElement.value : '';
+    const paymentMethod = paymentMethods.find(m => 
+        m.name.toLowerCase() === selectedMethod.toLowerCase() && m.active
+    );
+    const maxInstallments = paymentMethod ? (paymentMethod.installments || 12) : 12;
+    
+    if (isNaN(quantity) || quantity < 1 || quantity > maxInstallments) {
+        alert(`A quantidade de parcelas deve ser um número entre 1 e ${maxInstallments}.`);
+        return;
+    }
+    
+    // Validar valor
+    if (isNaN(value) || value <= 0) {
+        alert('Por favor, informe um valor válido maior que zero.');
+        return;
+    }
+    
+    // Calcular total líquido para validar valor máximo
+    if (!currentSale) {
+        newSale();
+    }
+    
+    // Calcular total líquido
+    const totalGross = currentSale.items.reduce((sum, item) => {
+        return sum + (item.unitValue * item.quantity);
+    }, 0);
+    
+    const totalWithItemDiscounts = currentSale.items.reduce((sum, item) => {
+        return sum + item.total;
+    }, 0);
+    
+    let totalLiquid = totalWithItemDiscounts;
+    if (globalDiscount > 0) {
+        if (discountType === 'percent') {
+            totalLiquid = totalWithItemDiscounts * (1 - globalDiscount / 100);
+        } else {
+            totalLiquid = totalWithItemDiscounts - globalDiscount;
+        }
+    }
+    totalLiquid = Math.max(0, totalLiquid);
+    
+    // Calcular valores já pagos (exceto o campo atual)
+    const payment1 = currentInstallmentPaymentIndex === 1 ? 0 : (parseFloat(document.getElementById('payment-value-1').value) || 0);
+    const payment2 = currentInstallmentPaymentIndex === 2 ? 0 : (parseFloat(document.getElementById('payment-value-2').value) || 0);
+    const otherPayments = payment1 + payment2;
+    
+    // Calcular o que falta pagar
+    const remaining = Math.max(0, totalLiquid - otherPayments);
+    
+    // Validar se o valor não excede o que falta pagar
+    if (value > remaining) {
+        alert(`O valor informado (${formatCurrency(value)}) não pode ser maior que o valor que falta pagar (${formatCurrency(remaining)}).`);
+        document.getElementById('installment-value').value = remaining.toFixed(2);
+        document.getElementById('installment-value').focus();
+        return;
+    }
+    
+    // Armazenar dados de parcelamento na venda
+    
+    if (currentInstallmentPaymentIndex === 1) {
+        currentSale.installments1 = quantity;
+        currentSale.installmentValue1 = value;
+    } else if (currentInstallmentPaymentIndex === 2) {
+        currentSale.installments2 = quantity;
+        currentSale.installmentValue2 = value;
+    }
+    
+    // Definir o valor do pagamento ANTES de fechar o modal
+    const paymentValueInput = document.getElementById(`payment-value-${currentInstallmentPaymentIndex}`);
+    if (paymentValueInput) {
+        // Definir o valor formatado
+        paymentValueInput.value = parseFloat(value).toFixed(2);
+        // Bloquear campo após confirmar parcelamento
+        paymentValueInput.disabled = true;
+        paymentValueInput.style.backgroundColor = '#f0f0f0';
+        paymentValueInput.style.cursor = 'not-allowed';
+        // Forçar atualização visual
+        paymentValueInput.dispatchEvent(new Event('input', { bubbles: true }));
+    }
+    
+    // Fechar modal SEM limpar os campos (clearFields = false)
+    closeInstallmentModal(false);
+    
+    // Recalcular totais (isso também atualiza os campos)
+    calculateTotals();
+    
+    // Atualizar limites dos campos de pagamento
+    updatePaymentFieldsLimits();
+}
+
+function handlePaymentEnter(event, index) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        calculateTotals();
+        
+        if (index === 1) {
+            const remaining = currentRemainingTotal;
+            if (remaining > 0.009) {
+                const paymentValue2 = document.getElementById('payment-value-2');
+                if (paymentValue2) {
+                    paymentValue2.focus();
+                    paymentValue2.select();
+                }
+            }
+        }
+    }
+}
+
+// Alternar tipo de desconto (Percentual ou Real)
+function toggleDiscountType() {
+    const toggle = document.getElementById('discount-type-toggle');
+    discountType = toggle.checked ? 'real' : 'percent';
+    updateDiscountLabel();
+    
+    // Verificar se há desconto global aplicado (valor no campo > 0)
+    const discountField = document.getElementById('sale-discount');
+    const discountValue = parseFloat(discountField.value) || 0;
+    
+    // Só recalcular se houver desconto global aplicado E o campo não estiver zerado
+    if (globalDiscount > 0 && discountValue > 0) {
+        calculateTotals();
+    } else {
+        // Se o campo estiver zerado, garantir que globalDiscount também esteja zerado
+        if (discountValue === 0) {
+            globalDiscount = 0;
+            calculateTotals(); // Recalcular para garantir que está correto
+        }
+    }
+}
+
+// Alternar tipo de juros (Percentual ou Real)
+function toggleInterestType() {
+    const toggle = document.getElementById('interest-type-toggle');
+    if (currentSale) {
+        currentSale.interestType = toggle.checked ? 'real' : 'percent';
+    }
+    updateInterestLabel();
+}
+
+// Atualizar label dos juros
+function updateInterestLabel() {
+    const label = document.getElementById('interest-label');
+    const toggle = document.getElementById('interest-type-toggle');
+    if (label && toggle) {
+        label.textContent = toggle.checked ? 'Juros (R$)' : 'Juros (%)';
+    }
+}
+
+// Atualizar informações de venda a prazo
+function updateCreditPaymentInfo() {
+    if (!currentSale) return;
+    
+    const dueDate = document.getElementById('sale-due-date').value;
+    const installments = parseInt(document.getElementById('sale-installments').value) || 1;
+    const interest = parseFloat(document.getElementById('sale-interest').value) || 0;
+    const interestToggle = document.getElementById('interest-type-toggle');
+    const interestType = interestToggle && interestToggle.checked ? 'real' : 'percent';
+    
+    currentSale.dueDate = dueDate || null;
+    currentSale.installments = installments;
+    currentSale.interest = interest;
+    currentSale.interestType = interestType;
+}
+
+// Atualizar label do desconto
+function updateDiscountLabel() {
+    const label = document.getElementById('discount-label');
+    if (discountType === 'real') {
+        label.textContent = 'Desconto/Acréscimo (R$)';
+    } else {
+        label.textContent = 'Desconto/Acréscimo (%)';
+    }
+}
+
+// Handler para mudança no campo de desconto (individual ou global)
+function handleDiscountChange() {
+    const discountValue = parseFloat(document.getElementById('sale-discount').value) || 0;
+    
+    // Se há um item selecionado, não aplicar automaticamente.
+    // O usuário deve confirmar com Enter para alterar o item.
+    if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+        return;
+    }
+    
+    // Para desconto global, só zerar se o campo estiver zerado
+    // Não aplicar desconto global automaticamente - apenas quando pressionar Enter
+    if (discountValue === 0) {
+        globalDiscount = 0;
+        calculateTotals();
+    }
+    // Se tiver valor, não aplicar ainda - esperar Enter
+}
+
+// Handler para Enter no campo de desconto
+function handleDiscountEnter(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const discountValue = parseFloat(event.target.value) || 0;
+        
+        // Se há um item selecionado, aplicar desconto individual
+        if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+            // Aplicar o desconto ao item selecionado
+            calculateItemTotal();
+            // Garantir que a lista seja atualizada visualmente
+            updateSaleItemsList();
+            // Manter o foco no campo de desconto para permitir novas alterações
+            setTimeout(() => {
+                document.getElementById('sale-discount').focus();
+                document.getElementById('sale-discount').select();
+            }, 50);
+        } else {
+            // Aplicar desconto global apenas quando pressionar Enter
+            if (discountValue === 0) {
+                globalDiscount = 0;
+            } else {
+                globalDiscount = discountValue;
+            }
+            calculateTotals();
+        }
+    }
+}
+
+// Handler para Enter no campo de quantidade
+function handleQuantityEnter(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        // Se há um item selecionado, atualizar a quantidade
+        if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+            const quantity = parseFloat(event.target.value) || 1;
+            if (quantity > 0) {
+                calculateItemTotal(); // Esta função já atualiza quantidade, valor e recalcula
+            }
+        }
+        // Sempre pular para o campo Código Barras após ENTER
+        const barcodeField = document.getElementById('sale-barcode');
+        if (barcodeField) {
+            barcodeField.focus();
+            barcodeField.select();
+        }
+    }
+}
+
+// Zerar desconto
+// Aplicar desconto global no total líquido
+async function applyGlobalDiscount() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_aplicarDesconto')) {
+        alert('⚠️ Você não tem permissão para aplicar desconto.');
+        return;
+    }
+    
+    if (!currentSale || currentSale.items.length === 0) {
+        alert('Adicione pelo menos um item à venda antes de aplicar desconto!');
+        return;
+    }
+    
+    // Pegar o valor digitado no campo de desconto (será aplicado como desconto global)
+    const discountValue = parseFloat(document.getElementById('sale-discount').value) || 0;
+    
+    if (discountValue <= 0) {
+        alert('Informe um valor de desconto maior que zero!');
+        return;
+    }
+    
+    // Se há um item selecionado, não alterar o item.
+    // Apenas remover a seleção antes de aplicar o desconto global.
+    if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+        saleItemIndex = -1;
+        updateSaleItemsList();
+    }
+    
+    // Aplicar desconto global sobre o total líquido com o valor digitado pelo usuário
+    // (não o valor restaurado no campo acima)
+    globalDiscount = discountValue;
+    calculateTotals();
+}
+
+function resetDiscount() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_outrasAcoes')) {
+        alert('⚠️ Você não tem permissão para zerar desconto.');
+        return;
+    }
+    
+    globalDiscount = 0;
+    document.getElementById('sale-discount').value = 0;
+    calculateTotals();
+}
+
+// Formatar moeda
+function formatCurrency(value) {
+    return 'R$ ' + value.toFixed(2).replace('.', ',').replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+}
+
+// Abrir seletor de cliente
+function openClientSelector() {
+    openClientSearchPanel();
+}
+
+// Fechar seletor de cliente
+function closeClientSelector() {
+    closeClientSearch();
+}
+
+// Carregar clientes para venda
+function loadClientsForSale() {
+    const container = document.getElementById('clients-list-sale');
+    if (!container) return;
+    
+    container.innerHTML = clients.map(client => `
+        <div class="client-item" onclick="selectClientForSale(${client.id})">
+            <strong>${client.name}</strong>
+            ${client.phone ? `<span>${client.phone}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+// Pesquisar clientes para venda
+function searchClientsForSale() {
+    const search = document.getElementById('client-search-sale').value.toLowerCase();
+    const container = document.getElementById('clients-list-sale');
+    if (!container) return;
+    
+    const filtered = clients.filter(c => 
+        c.name.toLowerCase().includes(search) ||
+        (c.phone && c.phone.includes(search))
+    );
+    
+    container.innerHTML = filtered.map(client => `
+        <div class="client-item" onclick="selectClientForSale(${client.id})">
+            <strong>${client.name}</strong>
+            ${client.phone ? `<span>${client.phone}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+// Selecionar cliente para venda
+function selectClientForSale(clientId) {
+    const client = clients.find(c => c.id === clientId);
+    if (client) {
+        applyClientToSale(client);
+        closeClientSearch();
+    }
+}
+
+// Definir cliente padrão
+function setDefaultClient() {
+    applyClientToSale(null);
+    closeClientSearch();
+}
+
+// Verificar se forma de pagamento é a prazo
+function isCreditPayment(paymentMethod) {
+    if (!paymentMethod) return false;
+    const methodLower = paymentMethod.toLowerCase();
+    return methodLower.includes('a prazo') || 
+           methodLower.includes('crédito parcelado') || 
+           methodLower.includes('credito parcelado');
+}
+
+// Finalizar venda
+function finalizeSale() {
+    if (!currentSale || currentSale.items.length === 0) {
+        alert('Adicione pelo menos um item à venda!');
+        return;
+    }
+    
+    const totalGross = currentSale.items.reduce((sum, item) => sum + item.total, 0);
+    const payment1 = parseFloat(document.getElementById('payment-value-1').value) || 0;
+    const payment2 = parseFloat(document.getElementById('payment-value-2').value) || 0;
+    const totalPaid = payment1 + payment2;
+    
+    // Obter formas de pagamento selecionadas
+    const paymentMethod1 = document.getElementById('payment-method-1').value;
+    const paymentMethod2 = document.getElementById('payment-method-2').value;
+    
+    // Verificar se alguma forma de pagamento é a prazo
+    const isPayment1Credit = isCreditPayment(paymentMethod1);
+    const isPayment2Credit = isCreditPayment(paymentMethod2);
+    const hasCreditPayment = isPayment1Credit || isPayment2Credit;
+    
+    // Validar cliente se for venda a prazo
+    if (hasCreditPayment || totalPaid < totalGross) {
+        // Verificar se o cliente é válido (não é CLIENTE PADRÃO)
+        if (!currentSale.client || currentSale.clientName === 'CLIENTE PADRÃO' || !currentSale.clientName || currentSale.clientName.trim() === 'CLIENTE PADRÃO') {
+            alert('⚠️ Para realizar uma venda a prazo, é necessário selecionar um cliente válido.\n\nPor favor, selecione um cliente real antes de finalizar a venda.');
+            return;
+        }
+    }
+    
+    if (totalPaid < totalGross) {
+        if (!confirm(`O valor pago (${formatCurrency(totalPaid)}) é menor que o total (${formatCurrency(totalGross)}). Deseja finalizar mesmo assim como venda a prazo?`)) {
+            return;
+        }
+        currentSale.status = 'open';
+    } else {
+        currentSale.status = 'completed';
+    }
+    
+    currentSale.paymentMethod1 = paymentMethod1;
+    currentSale.paymentValue1 = payment1;
+    currentSale.paymentMethod2 = paymentMethod2;
+    currentSale.paymentValue2 = payment2;
+    currentSale.totalGross = totalGross;
+    currentSale.totalPaid = totalPaid;
+    currentSale.totalChange = Math.max(0, totalPaid - totalGross);
+    
+    // Salvar informações de venda a prazo se "A Prazo" foi selecionado
+    if (hasCreditPayment) {
+        updateCreditPaymentInfo();
+    }
+    
+    // Manter informações de parcelamento se existirem (já foram definidas no modal)
+    // installments1, installmentValue1, installments2, installmentValue2 já estão em currentSale
+    
+    // Baixa automática de estoque
+    currentSale.items.forEach(item => {
+        if (item.productId) {
+            const product = products.find(p => p.id === item.productId);
+            if (product) {
+                const currentStock = product.quantidadeEstoque || 0;
+                const quantitySold = item.quantity || 0;
+                // Subtrair quantidade vendida do estoque (permite estoque negativo)
+                product.quantidadeEstoque = currentStock - quantitySold;
+                product.updatedAt = new Date().toISOString();
+            }
+        }
+    });
+    
+    // Salvar produtos com estoque atualizado
+    saveProducts();
+    
+    sales.push(currentSale);
+    saveSales();
+    
+    // Criar registro de cobrança se for venda a prazo
+    if (hasCreditPayment || totalPaid < totalGross) {
+        createReceivableRecord(currentSale, paymentMethod1, payment1, paymentMethod2, payment2);
+    }
+    
+    alert('Venda finalizada com sucesso!');
+    newSale();
+    if (document.getElementById('inventory-exits-view')) {
+        loadSalesList();
+    }
+    if (document.getElementById('inventory-receivables-view')) {
+        loadReceivablesList();
+    }
+}
+
+// Salvar vendas
+function saveSales() {
+    localStorage.setItem('sales', JSON.stringify(sales));
+}
+
+// Salvar contas a receber
+function saveReceivables() {
+    localStorage.setItem('receivables', JSON.stringify(receivables));
+}
+
+// Criar registro de cobrança para venda a prazo
+function createReceivableRecord(sale, paymentMethod1, paymentValue1, paymentMethod2, paymentValue2) {
+    const totalGross = sale.totalGross || 0;
+    const totalPaid = sale.totalPaid || 0;
+    const amountDue = totalGross - totalPaid;
+    
+    if (amountDue <= 0) return; // Não criar registro se já foi pago
+    
+    // Buscar informações do cliente
+    const client = sale.client ? clients.find(c => c.id === sale.client) : null;
+    const clientName = sale.clientName || (client ? (client.nome || client.name) : 'CLIENTE PADRÃO');
+    const clientPhone = client ? (client.telefone || client.phone || client.whatsapp || '') : '';
+    const clientPhoto = client ? (client.foto || client.photo || '') : '';
+    
+    // Converter data da venda para Date object
+    let saleDateObj;
+    if (typeof sale.date === 'string') {
+        if (sale.date.includes(',')) {
+            const datePart = sale.date.split(',')[0].trim();
+            const [day, month, year] = datePart.split('/');
+            saleDateObj = new Date(year, month - 1, day);
+        } else if (sale.date.includes('T')) {
+            saleDateObj = new Date(sale.date);
+        } else {
+            saleDateObj = new Date(sale.date);
+        }
+    } else {
+        saleDateObj = sale.date || new Date();
+    }
+    
+    // Usar data de vencimento da venda se definida, senão calcular
+    let finalDueDate = null;
+    if (sale.dueDate) {
+        finalDueDate = new Date(sale.dueDate);
+    } else {
+        // Calcular data padrão (30 dias)
+        finalDueDate = new Date(saleDateObj);
+        finalDueDate.setDate(finalDueDate.getDate() + 30);
+    }
+    
+    // Obter informações de parcelas e juros da venda
+    const installments = sale.installments || 1;
+    const interest = sale.interest || 0;
+    const interestType = sale.interestType || 'percent';
+    
+    // Calcular valor com juros
+    let finalAmountDue = amountDue;
+    if (interest > 0) {
+        if (interestType === 'percent') {
+            finalAmountDue = amountDue * (1 + interest / 100);
+        } else {
+            finalAmountDue = amountDue + interest;
+        }
+    }
+    
+    // Verificar se é venda parcelada
+    const isPayment1Installment = isCreditPayment(paymentMethod1) && sale.installments1 && sale.installments1 > 1;
+    const isPayment2Installment = isCreditPayment(paymentMethod2) && sale.installments2 && sale.installments2 > 1;
+    
+    // Se tiver parcelas definidas na venda (campo de "A Prazo"), usar essas
+    const hasInstallmentsFromField = installments > 1;
+    
+    if (hasInstallmentsFromField) {
+        // Criar registro para cada parcela usando o campo de parcelas
+        const installmentValue = finalAmountDue / installments;
+        for (let i = 1; i <= installments; i++) {
+            // Calcular data de vencimento de cada parcela
+            const parcelDueDate = new Date(finalDueDate);
+            parcelDueDate.setDate(parcelDueDate.getDate() + ((i - 1) * 30));
+            
+            receivables.push({
+                id: Date.now() + i,
+                saleId: sale.id,
+                saleNumber: sale.number,
+                saleDate: sale.date || sale.createdAt,
+                clientId: sale.client,
+                clientName: clientName,
+                clientPhone: clientPhone,
+                clientPhoto: clientPhoto,
+                totalGross: totalGross,
+                totalPaid: totalPaid,
+                amountDue: installmentValue,
+                dueDate: parcelDueDate.toISOString(),
+                installmentNumber: i,
+                totalInstallments: installments,
+                paymentMethod: paymentMethod1 || paymentMethod2,
+                interest: interest,
+                interestType: interestType,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            });
+        }
+    } else if (isPayment1Installment && sale.installmentValue1) {
+        // Criar registro para cada parcela do primeiro pagamento
+        const installmentValue = sale.installmentValue1 / sale.installments1;
+        for (let i = 1; i <= sale.installments1; i++) {
+            const dueDate = calculateDueDate(saleDateObj, i, sale.installments1);
+            
+            receivables.push({
+                id: Date.now() + i,
+                saleId: sale.id,
+                saleNumber: sale.number,
+                saleDate: sale.date || sale.createdAt,
+                clientId: sale.client,
+                clientName: clientName,
+                clientPhone: clientPhone,
+                clientPhoto: clientPhoto,
+                totalGross: totalGross,
+                totalPaid: totalPaid,
+                amountDue: installmentValue,
+                dueDate: dueDate.toISOString(),
+                installmentNumber: i,
+                totalInstallments: sale.installments1,
+                paymentMethod: paymentMethod1,
+                interest: interest,
+                interestType: interestType,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            });
+        }
+    } else if (isPayment2Installment && sale.installmentValue2) {
+        // Criar registro para cada parcela do segundo pagamento
+        const installmentValue = sale.installmentValue2 / sale.installments2;
+        for (let i = 1; i <= sale.installments2; i++) {
+            const dueDate = calculateDueDate(saleDateObj, i, sale.installments2);
+            
+            receivables.push({
+                id: Date.now() + i,
+                saleId: sale.id,
+                saleNumber: sale.number,
+                saleDate: sale.date || sale.createdAt,
+                clientId: sale.client,
+                clientName: clientName,
+                clientPhone: clientPhone,
+                clientPhoto: clientPhoto,
+                totalGross: totalGross,
+                totalPaid: totalPaid,
+                amountDue: installmentValue,
+                dueDate: dueDate.toISOString(),
+                installmentNumber: i,
+                totalInstallments: sale.installments2,
+                paymentMethod: paymentMethod2,
+                interest: interest,
+                interestType: interestType,
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            });
+        }
+    } else {
+        // Venda a prazo sem parcelamento - criar um único registro
+        receivables.push({
+            id: Date.now(),
+            saleId: sale.id,
+            saleNumber: sale.number,
+            saleDate: sale.date || sale.createdAt,
+            clientId: sale.client,
+            clientName: clientName,
+            clientPhone: clientPhone,
+            clientPhoto: clientPhoto,
+            totalGross: totalGross,
+            totalPaid: totalPaid,
+            amountDue: finalAmountDue,
+            dueDate: finalDueDate.toISOString(),
+            installmentNumber: null,
+            totalInstallments: installments > 1 ? installments : null,
+            paymentMethod: paymentMethod1 || paymentMethod2,
+            interest: interest,
+            interestType: interestType,
+            status: 'pending',
+            createdAt: new Date().toISOString()
+        });
+    }
+    
+    saveReceivables();
+}
+
+// Carregar lista de vendas
+function loadSalesList() {
+    const tbody = document.getElementById('sales-list-body');
+    if (!tbody) return;
+    
+    if (sales.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #666;">Nenhuma venda encontrada</td></tr>';
+        return;
+    }
+    
+    tbody.innerHTML = sales.map(sale => {
+        const statusClass = {
+            'completed': 'status-completed',
+            'open': 'status-open',
+            'partial': 'status-partial',
+            'cancelled': 'status-cancelled'
+        }[sale.status] || 'status-open';
+        
+        const statusText = {
+            'completed': 'Concluída',
+            'open': 'Em Aberto',
+            'partial': 'Parcialmente Paga',
+            'cancelled': 'Cancelada'
+        }[sale.status] || 'Em Aberto';
+        
+        return `
+            <tr>
+                <td>${sale.id}</td>
+                <td>${sale.date}</td>
+                <td>${sale.number}</td>
+                <td>${sale.clientName || 'CLIENTE PADRÃO'}</td>
+                <td>${formatCurrency(sale.totalGross || 0)}</td>
+                <td>${sale.seller || 'N/A'}</td>
+                <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                <td>
+                    <button class="btn btn-small btn-primary" onclick="reprintReceipt(${sale.id})">🖨️ Reimprimir</button>
+                    <button class="btn btn-small btn-danger" onclick="deleteSale(${sale.id})">🗑️ Excluir</button>
+                </td>
+            </tr>
+        `;
+    }).join('');
+}
+
+// Pesquisar vendas
+function searchSales() {
+    const search = document.getElementById('sales-search').value.toLowerCase();
+    const rows = document.querySelectorAll('#sales-list-body tr');
+    
+    rows.forEach(row => {
+        const text = row.textContent.toLowerCase();
+        row.style.display = text.includes(search) ? '' : 'none';
+    });
+}
+
+// Abrir filtros de vendas
+function openSalesFilter() {
+    const panel = document.getElementById('sales-filter-panel');
+    panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+// Aplicar filtros de vendas
+function applySalesFilter() {
+    const dateStart = document.getElementById('filter-date-start').value;
+    const dateEnd = document.getElementById('filter-date-end').value;
+    const saleNumber = document.getElementById('filter-sale-number').value;
+    const client = document.getElementById('filter-client').value.toLowerCase();
+    const saleType = document.getElementById('filter-sale-type').value;
+    
+    let filtered = sales;
+    
+    if (dateStart) {
+        filtered = filtered.filter(s => new Date(s.createdAt) >= new Date(dateStart));
+    }
+    if (dateEnd) {
+        filtered = filtered.filter(s => new Date(s.createdAt) <= new Date(dateEnd + 'T23:59:59'));
+    }
+    if (saleNumber) {
+        filtered = filtered.filter(s => s.number.includes(saleNumber));
+    }
+    if (client) {
+        filtered = filtered.filter(s => (s.clientName || '').toLowerCase().includes(client));
+    }
+    if (saleType) {
+        filtered = filtered.filter(s => s.status === saleType);
+    }
+    
+    // Atualizar lista com resultados filtrados
+    const tbody = document.getElementById('sales-list-body');
+    if (tbody) {
+        if (filtered.length === 0) {
+            tbody.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 40px; color: #666;">Nenhuma venda encontrada</td></tr>';
+        } else {
+            tbody.innerHTML = filtered.map(sale => {
+                const statusClass = {
+                    'completed': 'status-completed',
+                    'open': 'status-open',
+                    'partial': 'status-partial',
+                    'cancelled': 'status-cancelled'
+                }[sale.status] || 'status-open';
+                
+                const statusText = {
+                    'completed': 'Concluída',
+                    'open': 'Em Aberto',
+                    'partial': 'Parcialmente Paga',
+                    'cancelled': 'Cancelada'
+                }[sale.status] || 'Em Aberto';
+                
+                return `
+                    <tr>
+                        <td>${sale.id}</td>
+                        <td>${sale.date}</td>
+                        <td>${sale.number}</td>
+                        <td>${sale.clientName || 'CLIENTE PADRÃO'}</td>
+                        <td>${formatCurrency(sale.totalGross || 0)}</td>
+                        <td>${sale.seller || 'N/A'}</td>
+                        <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                        <td>
+                            <button class="btn btn-small btn-primary" onclick="reprintReceipt(${sale.id})">🖨️ Reimprimir</button>
+                            <button class="btn btn-small btn-danger" onclick="deleteSale(${sale.id})">🗑️ Excluir</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+    }
+}
+
+// Limpar filtros
+function clearSalesFilter() {
+    document.getElementById('filter-date-start').value = '';
+    document.getElementById('filter-date-end').value = '';
+    document.getElementById('filter-sale-number').value = '';
+    document.getElementById('filter-client').value = '';
+    document.getElementById('filter-sale-type').value = '';
+    loadSalesList();
+}
+
+// Reimprimir cupom
+function reprintReceipt(saleId) {
+    const sale = sales.find(s => s.id === saleId);
+    if (sale) {
+        alert('Funcionalidade de impressão será implementada em breve.');
+        // Aqui você pode implementar a lógica de impressão
+    }
+}
+
+// Excluir venda
+function deleteSale(saleId) {
+    if (confirm('Tem certeza que deseja excluir esta venda?')) {
+        sales = sales.filter(s => s.id !== saleId);
+        saveSales();
+        loadSalesList();
+    }
+}
+
+// Pesquisar produtos (inline)
+function openSaleProductSearch() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_outrasAcoes')) {
+        alert('⚠️ Você não tem permissão para pesquisar produtos.');
+        return;
+    }
+    
+    openProductSearchPanel();
+}
+
+// Abrir pesquisa ao clicar no campo de descrição
+function openProductSearchFromDescription() {
+    openProductSearchPanel();
+}
+
+function openProductSearchPanel() {
+    const panel = document.getElementById('product-search-inline-panel');
+    const saleItemsContainer = document.getElementById('sale-items-container');
+    const input = document.getElementById('product-search-inline-input');
+    if (!panel || !saleItemsContainer || !input) return;
+    
+    isProductSearchOpen = true;
+    isClientSearchOpen = false;
+    updateSalePanelVisibility();
+    input.value = '';
+    performProductSearch('');
+    setTimeout(() => input.focus(), 50);
+}
+
+function closeProductSearch() {
+    isProductSearchOpen = false;
+    selectedProductIndex = -1;
+    updateSalePanelVisibility();
+}
+
+function handleProductSearchInput() {
+    const input = document.getElementById('product-search-inline-input');
+    if (!input) return;
+    performProductSearch(input.value);
+}
+
+function handleProductSearchKeydown(event) {
+    if (!isProductSearchOpen) return;
+    const items = document.querySelectorAll('#product-search-inline-results .product-search-item-simple');
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (items.length === 0) return;
+        selectedProductIndex = selectedProductIndex < items.length - 1 ? selectedProductIndex + 1 : 0;
+        updateProductSelection();
+        items[selectedProductIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (items.length === 0) return;
+        selectedProductIndex = selectedProductIndex > 0 ? selectedProductIndex - 1 : items.length - 1;
+        updateProductSelection();
+        items[selectedProductIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (event.key === 'Enter') {
+        event.preventDefault();
+        confirmProductSelection();
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeProductSearch();
+    }
+}
+
+function performProductSearch(query = '') {
+    const normalized = normalizeText(query);
+    const rawQuery = query.trim();
+    const searchAsNumber = parseFloat(rawQuery.replace(',', '.'));
+    const isNumericSearch = !isNaN(searchAsNumber);
+    
+    if (!normalized && !isNumericSearch) {
+        productSearchResults = [...products];
+    } else {
+        productSearchResults = products.filter(p => {
+            const nomeProduto = normalizeText(p.nome || p.name || '');
+            const codigoBarras = normalizeText(p.codigoBarras || p.barcode || p.sku || '');
+            const descricao = normalizeText(p.descricao || p.description || '');
+            const precoVenda = p.precoVenda || p.salePrice || 0;
+            
+            const matchesName = nomeProduto.includes(normalized) || descricao.includes(normalized);
+            const matchesBarcode = codigoBarras.includes(normalized);
+            const matchesPrice = isNumericSearch && (
+                precoVenda.toString().includes(searchAsNumber.toString()) ||
+                Math.abs(precoVenda - searchAsNumber) < 0.01 ||
+                precoVenda.toFixed(2).replace('.', ',').includes(rawQuery)
+            );
+            
+            return matchesName || matchesBarcode || matchesPrice;
+        });
+    }
+    
+    selectedProductIndex = productSearchResults.length > 0 ? 0 : -1;
+    renderProductSearchResults();
+}
+
+function renderProductSearchResults() {
+    const container = document.getElementById('product-search-inline-results');
+    if (!container) return;
+    
+    if (!productSearchResults || productSearchResults.length === 0) {
+        container.innerHTML = '<p class="empty-message">Nenhum produto encontrado</p>';
+        return;
+    }
+    
+    container.innerHTML = productSearchResults.map((product, index) => {
+        const nomeProduto = product.nome || product.name || 'Sem nome';
+        const codigoBarras = product.codigoBarras || product.barcode || 'N/A';
+        const precoVenda = product.precoVenda || product.salePrice || 0;
+        
+        return `
+        <div class="product-search-item-simple ${index === selectedProductIndex ? 'product-search-item-selected' : ''}"
+             onclick="selectProductFromSearch(${index})"
+             ondblclick="confirmProductSelection()">
+            <div class="product-search-info-simple">
+                <div class="product-search-row">
+                    <strong>${nomeProduto}</strong>
+                    <span class="product-price">R$ ${precoVenda.toFixed(2).replace('.', ',')}</span>
+                </div>
+                <div class="product-search-row">
+                    <small>Código Barras: ${codigoBarras}</small>
+                </div>
+            </div>
+        </div>
+    `;
+    }).join('');
+    
+    updateProductSelection();
+}
+
+function updateProductSelection() {
+    const items = document.querySelectorAll('#product-search-inline-results .product-search-item-simple');
+    items.forEach((item, index) => {
+        if (index === selectedProductIndex) {
+            item.classList.add('product-search-item-selected');
+        } else {
+            item.classList.remove('product-search-item-selected');
+        }
+    });
+}
+
+function selectProductFromSearch(index) {
+    selectedProductIndex = index;
+    updateProductSelection();
+}
+
+function confirmProductSelection() {
+    if (!productSearchResults || productSearchResults.length === 0) return;
+    if (selectedProductIndex < 0 || selectedProductIndex >= productSearchResults.length) {
+        selectedProductIndex = 0;
+    }
+    const product = productSearchResults[selectedProductIndex];
+    // Ler a quantidade ANTES de preencher os campos (para não perder o valor)
+    const currentQuantity = parseFloat(document.getElementById('sale-quantity').value) || 1;
+    fillSaleFieldsForProduct(product);
+    // Restaurar a quantidade que estava no campo antes de preencher
+    document.getElementById('sale-quantity').value = currentQuantity;
+    addProductToSale(product);
+    closeProductSearch();
+}
+
+function handleClientSearchInput() {
+    const input = document.getElementById('client-search-inline-input');
+    if (!input) return;
+    performClientSearch(input.value);
+}
+
+function handleClientSearchKeydown(event) {
+    if (!isClientSearchOpen) return;
+    const items = document.querySelectorAll('#client-search-inline-results .product-search-item-simple');
+    if (event.key === 'ArrowDown') {
+        event.preventDefault();
+        if (items.length === 0) return;
+        selectedClientIndex = selectedClientIndex < items.length - 1 ? selectedClientIndex + 1 : 0;
+        updateClientSelection();
+        items[selectedClientIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (event.key === 'ArrowUp') {
+        event.preventDefault();
+        if (items.length === 0) return;
+        selectedClientIndex = selectedClientIndex > 0 ? selectedClientIndex - 1 : items.length - 1;
+        updateClientSelection();
+        items[selectedClientIndex].scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    } else if (event.key === 'Enter') {
+        event.preventDefault();
+        confirmClientSelection();
+    } else if (event.key === 'Escape') {
+        event.preventDefault();
+        closeClientSearch();
+    }
+}
+
+function performClientSearch(query = '') {
+    const normalized = normalizeText(query);
+    const digits = query.replace(/\D/g, '');
+    if (!normalized && !digits) {
+        clientSearchResults = [...clients];
+    } else {
+        clientSearchResults = clients.filter(client => {
+            const name = normalizeText(client.name || '');
+            const phone = (client.phone || '').replace(/\D/g, '');
+            return name.includes(normalized) || (digits && phone.includes(digits));
+        });
+    }
+    selectedClientIndex = clientSearchResults.length > 0 ? 0 : -1;
+    renderClientSearchResults();
+}
+
+function renderClientSearchResults() {
+    const container = document.getElementById('client-search-inline-results');
+    if (!container) return;
+    
+    if (!clientSearchResults || clientSearchResults.length === 0) {
+        container.innerHTML = '<p class="empty-message">Nenhum cliente encontrado</p>';
+        return;
+    }
+    
+    container.innerHTML = clientSearchResults.map((client, index) => `
+        <div class="product-search-item-simple ${index === selectedClientIndex ? 'product-search-item-selected' : ''}"
+             onclick="selectClientFromSearch(${index})"
+             ondblclick="confirmClientSelection()">
+            <div class="product-search-info-simple">
+                <div class="product-search-row">
+                    <strong>${client.name}</strong>
+                </div>
+                <div class="product-search-row">
+                    <small>${client.phone || 'Sem telefone'}</small>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    updateClientSelection();
+}
+
+function updateClientSelection() {
+    const items = document.querySelectorAll('#client-search-inline-results .product-search-item-simple');
+    items.forEach((item, index) => {
+        if (index === selectedClientIndex) {
+            item.classList.add('product-search-item-selected');
+        } else {
+            item.classList.remove('product-search-item-selected');
+        }
+    });
+}
+
+function selectClientFromSearch(index) {
+    selectedClientIndex = index;
+    updateClientSelection();
+}
+
+function confirmClientSelection() {
+    if (!clientSearchResults || clientSearchResults.length === 0) return;
+    if (selectedClientIndex < 0 || selectedClientIndex >= clientSearchResults.length) {
+        selectedClientIndex = 0;
+    }
+    const client = clientSearchResults[selectedClientIndex];
+    applyClientToSale(client);
+    closeClientSearch();
+}
+
+function applyClientToSale(client) {
+    if (!currentSale) newSale();
+    if (client) {
+        currentSale.client = client.id;
+        currentSale.clientName = client.name;
+        const clientField = document.getElementById('sale-client');
+        if (clientField) clientField.value = client.name;
+    } else {
+        currentSale.client = null;
+        currentSale.clientName = 'CLIENTE PADRÃO';
+        const clientField = document.getElementById('sale-client');
+        if (clientField) clientField.value = 'CLIENTE PADRÃO';
+    }
+}
+
+function openClientSearchPanel() {
+    const panel = document.getElementById('client-search-inline-panel');
+    const input = document.getElementById('client-search-inline-input');
+    if (!panel || !input) return;
+    
+    isClientSearchOpen = true;
+    isProductSearchOpen = false;
+    updateSalePanelVisibility();
+    input.value = '';
+    performClientSearch('');
+    setTimeout(() => input.focus(), 50);
+}
+
+// Handler para Enter no Valor Unitário (adicionar DIVERSOS)
+function handleUnitValueEnter(event) {
+    if (event.key === 'Enter') {
+        event.preventDefault();
+        const unitValue = parseFloat(event.target.value) || 0;
+        if (unitValue > 0) {
+            // Adicionar item DIVERSOS com o valor informado
+            addProductToSale(null); // null = DIVERSOS
+        }
+    }
+}
+
+// Localizar venda
+function searchSale() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_localizarVenda')) {
+        alert('⚠️ Você não tem permissão para localizar vendas.');
+        return;
+    }
+    
+    document.getElementById('locate-sale-modal').style.display = 'block';
+}
+
+// Fechar localizar venda
+function closeLocateSale() {
+    document.getElementById('locate-sale-modal').style.display = 'none';
+}
+
+// Realizar busca de venda
+function performLocateSale() {
+    const input = document.getElementById('locate-sale-input').value;
+    const date = document.getElementById('locate-sale-date').value;
+    const results = document.getElementById('locate-sale-results');
+    
+    let filtered = sales;
+    
+    if (input) {
+        filtered = filtered.filter(s => 
+            s.number.includes(input) || 
+            String(s.id).includes(input)
+        );
+    }
+    
+    if (date) {
+        filtered = filtered.filter(s => {
+            const saleDate = new Date(s.createdAt).toISOString().split('T')[0];
+            return saleDate === date;
+        });
+    }
+    
+    if (filtered.length === 0) {
+        results.innerHTML = '<p style="color: #666;">Nenhuma venda encontrada</p>';
+        return;
+    }
+    
+    results.innerHTML = filtered.map(sale => `
+        <div class="located-sale-item">
+            <strong>Venda #${sale.number}</strong>
+            <span>${sale.date}</span>
+            <span>${sale.clientName || 'CLIENTE PADRÃO'}</span>
+            <span>${formatCurrency(sale.totalGross || 0)}</span>
+            <button class="btn btn-small btn-primary" onclick="viewSaleDetails(${sale.id})">Ver Detalhes</button>
+        </div>
+    `).join('');
+}
+
+// Ver detalhes da venda
+function viewSaleDetails(saleId) {
+    const sale = sales.find(s => s.id === saleId);
+    if (sale) {
+        alert(`Venda #${sale.number}\nCliente: ${sale.clientName}\nTotal: ${formatCurrency(sale.totalGross)}\nStatus: ${sale.status}`);
+    }
+}
+
+// Editar produto
+function editProduct() {
+    if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+        const item = currentSale.items[saleItemIndex];
+        document.getElementById('sale-quantity').value = item.quantity;
+        document.getElementById('sale-description').value = item.name;
+        document.getElementById('sale-unit-value').value = item.unitValue;
+        document.getElementById('sale-discount').value = item.discount;
+        alert('Edite os campos acima e pressione Enter na descrição para atualizar o item.');
+    } else {
+        alert('Selecione um item da lista para editar.');
+    }
+}
+
+// Remover produto
+async function removeProduct() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_cancelarItemVenda')) {
+        const authorized = await requestAuthorizationPassword('vender_cancelarItemVenda', 'Excluir Produto');
+        if (!authorized) {
+            return;
+        }
+    }
+    
+    if (saleItemIndex >= 0 && currentSale && currentSale.items[saleItemIndex]) {
+        if (confirm('Deseja remover este item da venda?')) {
+            currentSale.items.splice(saleItemIndex, 1);
+            saleItemIndex = -1;
+            updateSaleItemsList();
+            calculateTotals();
+        }
+    } else {
+        alert('Selecione um item da lista para remover.');
+    }
+}
+
+// Cancelar venda
+async function cancelSale() {
+    // Verificar permissão
+    if (!hasSalesPermission('vender_cancelarItemVenda')) {
+        const authorized = await requestAuthorizationPassword('vender_cancelarItemVenda', 'Cancelar / Excluir Venda');
+        if (!authorized) {
+            return;
+        }
+    }
+    
+    if (confirm('Tem certeza que deseja cancelar esta venda? Todos os itens serão perdidos.')) {
+        newSale();
+    }
+}
+
+// Sair da tela de vendas
+function exitSales() {
+    if (currentSale && currentSale.items.length > 0) {
+        if (!confirm('Há itens na venda atual. Deseja realmente sair?')) {
+            return;
+        }
+    }
+    // Restaurar tamanho normal da janela ao sair
+    if (document.exitFullscreen) {
+        document.exitFullscreen().catch(err => console.log(err));
+    } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+    } else if (document.msExitFullscreen) {
+        document.msExitFullscreen();
+    }
+    showSection('home');
+}
+
+// Imprimir cupom 80mm
+function printReceipt80mm() {
+    if (!currentSale || currentSale.items.length === 0) {
+        alert('Não há itens na venda para imprimir!');
+        return;
+    }
+    printReceipt(80);
+}
+
+function printReceipt58mm() {
+    if (!currentSale || currentSale.items.length === 0) {
+        alert('Não há itens na venda para imprimir!');
+        return;
+    }
+    printReceipt(58);
+}
+
+// Função genérica para imprimir cupom
+function printReceipt(width) {
+    if (!currentSale || currentSale.items.length === 0) {
+        alert('Não há itens na venda para imprimir!');
+        return;
+    }
+    
+    const totalGross = currentSale.items.reduce((sum, item) => sum + item.total, 0);
+    const companyName = companyData ? (companyData.name || 'Empresa') : 'Empresa';
+    const companyAddress = companyData ? (companyData.address || '') : '';
+    const companyPhone = companyData ? (companyData.phone || '') : '';
+    
+    // Construir HTML do cupom
+    let receiptHTML = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>Cupom Fiscal - Venda ${currentSale.number}</title>
+            <style>
+                @media print {
+                    @page { margin: 0; size: ${width}mm auto; }
+                    body { margin: 0; padding: 10px; font-size: 12px; }
+                }
+                body {
+                    font-family: 'Courier New', monospace;
+                    width: ${width}mm;
+                    margin: 0 auto;
+                    padding: 10px;
+                    font-size: 12px;
+                }
+                .receipt-header {
+                    text-align: center;
+                    border-bottom: 2px dashed #000;
+                    padding-bottom: 10px;
+                    margin-bottom: 10px;
+                }
+                .receipt-title {
+                    font-weight: bold;
+                    font-size: 16px;
+                    margin-bottom: 5px;
+                }
+                .receipt-info {
+                    margin: 5px 0;
+                    font-size: 11px;
+                }
+                .receipt-items {
+                    margin: 10px 0;
+                }
+                .receipt-item {
+                    margin: 5px 0;
+                    padding: 5px 0;
+                    border-bottom: 1px dotted #ccc;
+                }
+                .receipt-totals {
+                    margin-top: 15px;
+                    border-top: 2px dashed #000;
+                    padding-top: 10px;
+                }
+                .receipt-total-line {
+                    display: flex;
+                    justify-content: space-between;
+                    margin: 5px 0;
+                    font-weight: bold;
+                }
+                .receipt-payment {
+                    margin: 10px 0;
+                    padding: 10px 0;
+                    border-top: 1px dashed #000;
+                    border-bottom: 1px dashed #000;
+                }
+                .receipt-installment {
+                    background: #f0f0f0;
+                    padding: 8px;
+                    margin: 8px 0;
+                    border-left: 3px solid #333;
+                }
+                .receipt-installment-title {
+                    font-weight: bold;
+                    margin-bottom: 5px;
+                }
+                .receipt-installment-info {
+                    font-size: 11px;
+                    margin: 3px 0;
+                }
+                .receipt-footer {
+                    text-align: center;
+                    margin-top: 20px;
+                    padding-top: 10px;
+                    border-top: 2px dashed #000;
+                    font-size: 10px;
+                }
+            </style>
+        </head>
+        <body>
+            <div class="receipt-header">
+                <div class="receipt-title">${companyName}</div>
+                ${companyAddress ? `<div class="receipt-info">${companyAddress}</div>` : ''}
+                ${companyPhone ? `<div class="receipt-info">Tel: ${companyPhone}</div>` : ''}
+                <div class="receipt-info">CUPOM FISCAL</div>
+            </div>
+            
+            <div class="receipt-info">
+                <strong>Venda:</strong> ${currentSale.number}<br>
+                <strong>Data:</strong> ${currentSale.date}<br>
+                <strong>Cliente:</strong> ${currentSale.clientName || 'CLIENTE PADRÃO'}<br>
+                <strong>Vendedor:</strong> ${currentSale.seller || 'N/A'}
+            </div>
+            
+            <div class="receipt-items">
+                <strong>ITENS:</strong>
+                ${currentSale.items.map(item => `
+                    <div class="receipt-item">
+                        ${item.name || 'DIVERSOS'}<br>
+                        Qtd: ${item.quantity} x ${formatCurrency(item.unitValue)} = ${formatCurrency(item.total)}
+                    </div>
+                `).join('')}
+            </div>
+            
+            <div class="receipt-totals">
+                <div class="receipt-total-line">
+                    <span>VALOR TOTAL DA VENDA:</span>
+                    <span>${formatCurrency(totalGross)}</span>
+                </div>
+            </div>
+            
+            <div class="receipt-payment">
+                <strong>FORMA DE PAGAMENTO:</strong><br>
+    `;
+    
+    // Adicionar informações de pagamento 1
+    if (currentSale.paymentMethod1 && currentSale.paymentValue1 > 0) {
+        receiptHTML += `
+            <div style="margin: 5px 0;">
+                ${currentSale.paymentMethod1}: ${formatCurrency(currentSale.paymentValue1)}
+        `;
+        
+        // Se houver parcelamento no pagamento 1
+        if (currentSale.installments1 && currentSale.installments1 > 1 && currentSale.installmentValue1) {
+            const installmentValue = currentSale.installmentValue1 / currentSale.installments1;
+            receiptHTML += `
+                <div class="receipt-installment">
+                    <div class="receipt-installment-title">PARCELAMENTO (${currentSale.paymentMethod1}):</div>
+                    <div class="receipt-installment-info">Valor Total Parcelado: ${formatCurrency(currentSale.installmentValue1)}</div>
+                    <div class="receipt-installment-info">Número de Parcelas: ${currentSale.installments1}x</div>
+                    <div class="receipt-installment-info"><strong>Valor de cada Parcela: ${formatCurrency(installmentValue)}</strong></div>
+                </div>
+            `;
+        }
+        
+        receiptHTML += `</div>`;
+    }
+    
+    // Adicionar informações de pagamento 2
+    if (currentSale.paymentMethod2 && currentSale.paymentValue2 > 0) {
+        receiptHTML += `
+            <div style="margin: 5px 0;">
+                ${currentSale.paymentMethod2}: ${formatCurrency(currentSale.paymentValue2)}
+        `;
+        
+        // Se houver parcelamento no pagamento 2
+        if (currentSale.installments2 && currentSale.installments2 > 1 && currentSale.installmentValue2) {
+            const installmentValue = currentSale.installmentValue2 / currentSale.installments2;
+            receiptHTML += `
+                <div class="receipt-installment">
+                    <div class="receipt-installment-title">PARCELAMENTO (${currentSale.paymentMethod2}):</div>
+                    <div class="receipt-installment-info">Valor Total Parcelado: ${formatCurrency(currentSale.installmentValue2)}</div>
+                    <div class="receipt-installment-info">Número de Parcelas: ${currentSale.installments2}x</div>
+                    <div class="receipt-installment-info"><strong>Valor de cada Parcela: ${formatCurrency(installmentValue)}</strong></div>
+                </div>
+            `;
+        }
+        
+        receiptHTML += `</div>`;
+    }
+    
+    receiptHTML += `
+            </div>
+            
+            <div class="receipt-footer">
+                <div>Obrigado pela preferência!</div>
+                <div style="margin-top: 5px;">${new Date().toLocaleString('pt-BR')}</div>
+            </div>
+        </body>
+        </html>
+    `;
+    
+    // Abrir janela de impressão
+    const printWindow = window.open('', '_blank', 'width=800,height=600');
+    printWindow.document.write(receiptHTML);
+    printWindow.document.close();
+    
+    // Aguardar carregamento e imprimir
+    printWindow.onload = function() {
+        setTimeout(() => {
+            printWindow.print();
+        }, 250);
+    };
+}
+
+// Toggle dropdown de impressão
+function togglePrintDropdown() {
+    const dropdown = document.getElementById('print-dropdown-menu');
+    if (dropdown) {
+        dropdown.style.display = dropdown.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Fechar dropdown ao clicar fora
+document.addEventListener('click', function(event) {
+    const dropdown = document.getElementById('print-dropdown-menu');
+    const wrapper = event.target.closest('.btn-dropdown-wrapper');
+    if (dropdown && !wrapper) {
+        dropdown.style.display = 'none';
+    }
+});
+
+// Função removida - agora usa printReceipt(58)
+
+// ==================== FUNÇÕES DE CONTAS A RECEBER ====================
+
+// Calcular data de vencimento baseado em parcelas
+function calculateDueDate(saleDate, installmentNumber, totalInstallments) {
+    if (!saleDate) return null;
+    
+    // Converter data da venda para Date object
+    let saleDateObj;
+    if (saleDate instanceof Date) {
+        saleDateObj = saleDate;
+    } else if (typeof saleDate === 'string') {
+        // Formato: "30/11/2025, 18:42:20" ou ISO
+        if (saleDate.includes(',')) {
+            const datePart = saleDate.split(',')[0].trim();
+            const [day, month, year] = datePart.split('/');
+            saleDateObj = new Date(year, month - 1, day);
+        } else if (saleDate.includes('T')) {
+            saleDateObj = new Date(saleDate);
+        } else {
+            saleDateObj = new Date(saleDate);
+        }
+    } else {
+        saleDateObj = saleDate;
+    }
+    
+    // Se for venda parcelada, calcular vencimento baseado na parcela
+    if (totalInstallments && totalInstallments > 1 && installmentNumber) {
+        // Cada parcela vence 30 dias após a anterior (ou após a data da venda para a primeira)
+        const daysToAdd = (installmentNumber - 1) * 30;
+        const dueDate = new Date(saleDateObj);
+        dueDate.setDate(dueDate.getDate() + daysToAdd);
+        return dueDate;
+    } else {
+        // Venda a prazo sem parcelamento: vence 30 dias após a venda
+        const dueDate = new Date(saleDateObj);
+        dueDate.setDate(dueDate.getDate() + 30);
+        return dueDate;
+    }
+}
+
+// Obter status da conta (A Vencer, Vencido, Pago)
+function getReceivableStatus(sale, dueDate, amountDue) {
+    // Se amountDue for 0, considerar como pago
+    if (amountDue !== undefined && amountDue !== null && amountDue === 0) {
+        return 'pago';
+    }
+    
+    if (sale.status === 'completed' || (sale.totalPaid >= sale.totalGross)) {
+        return 'pago';
+    }
+    
+    if (!dueDate) return 'a-vencer';
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    
+    if (due < today) {
+        return 'vencido';
+    } else {
+        return 'a-vencer';
+    }
+}
+
+// Carregar lista de contas a receber
+function loadReceivablesList() {
+    const container = document.getElementById('receivables-cards-container');
+    if (!container) return;
+    
+    // Carregar receivables do localStorage
+    receivables = JSON.parse(localStorage.getItem('receivables')) || [];
+    
+    // Carregar todos os receivables (incluindo pagos)
+    let receivablesList = receivables.map(rec => {
+        const recCopy = { ...rec };
+        if (rec.dueDate) {
+            recCopy.dueDate = new Date(rec.dueDate);
+        }
+        // Garantir que amountDue existe
+        if (recCopy.amountDue === undefined || recCopy.amountDue === null) {
+            recCopy.amountDue = 0;
+        }
+        return recCopy;
+    });
+    
+    // Aplicar filtros
+    receivablesList = applyReceivablesFilters(receivablesList);
+    
+    // Ocultar cards com valor devedor = 0, exceto quando filtro "pago" estiver ativo
+    const statusFilter = document.getElementById('filter-receivables-status')?.value || '';
+    if (statusFilter !== 'pago') {
+        receivablesList = receivablesList.filter(rec => {
+            const amountDue = rec.amountDue || 0;
+            return amountDue > 0;
+        });
+    }
+    
+    // Ordenar por data de vencimento (vencidos primeiro, depois por data)
+    receivablesList.sort((a, b) => {
+        const statusA = getReceivableStatus({ totalPaid: a.totalPaid, totalGross: a.totalGross, status: 'open' }, a.dueDate, a.amountDue);
+        const statusB = getReceivableStatus({ totalPaid: b.totalPaid, totalGross: b.totalGross, status: 'open' }, b.dueDate, b.amountDue);
+        
+        if (statusA === 'vencido' && statusB !== 'vencido') return -1;
+        if (statusA !== 'vencido' && statusB === 'vencido') return 1;
+        
+        if (a.dueDate && b.dueDate) {
+            return new Date(a.dueDate) - new Date(b.dueDate);
+        }
+        return 0;
+    });
+    
+    // Renderizar cards
+    renderReceivablesCards(receivablesList);
+}
+
+// Aplicar filtros às contas a receber
+function applyReceivablesFilters(receivablesList) {
+    const clientNameFilter = document.getElementById('filter-receivables-client-name')?.value.toLowerCase() || '';
+    const phoneFilter = document.getElementById('filter-receivables-phone')?.value || '';
+    const saleNumberFilter = document.getElementById('filter-receivables-sale-number')?.value || '';
+    const statusFilter = document.getElementById('filter-receivables-status')?.value || '';
+    const dateStartFilter = document.getElementById('filter-receivables-date-start')?.value || '';
+    const dateEndFilter = document.getElementById('filter-receivables-date-end')?.value || '';
+    
+    return receivablesList.filter(receivable => {
+        // Filtro por nome do cliente
+        if (clientNameFilter && !receivable.clientName.toLowerCase().includes(clientNameFilter)) {
+            return false;
+        }
+        
+        // Filtro por telefone
+        if (phoneFilter && !receivable.clientPhone.includes(phoneFilter)) {
+            return false;
+        }
+        
+        // Filtro por número da venda
+        if (saleNumberFilter && !receivable.saleNumber.toString().includes(saleNumberFilter)) {
+            return false;
+        }
+        
+        // Filtro por status
+        if (statusFilter) {
+            const amountDue = receivable.amountDue || 0;
+            const status = getReceivableStatus({ totalPaid: receivable.totalPaid, totalGross: receivable.totalGross, status: 'open' }, receivable.dueDate, amountDue);
+            if (status !== statusFilter) {
+                return false;
+            }
+        }
+        
+        // Filtro por período
+        if (dateStartFilter || dateEndFilter) {
+            const saleDate = new Date(receivable.saleDate);
+            if (dateStartFilter) {
+                const startDate = new Date(dateStartFilter);
+                if (saleDate < startDate) return false;
+            }
+            if (dateEndFilter) {
+                const endDate = new Date(dateEndFilter);
+                endDate.setHours(23, 59, 59);
+                if (saleDate > endDate) return false;
+            }
+        }
+        
+        return true;
+    });
+}
+
+// Renderizar cards de contas a receber
+function renderReceivablesCards(receivablesList) {
+    const container = document.getElementById('receivables-cards-container');
+    if (!container) return;
+    
+    if (receivablesList.length === 0) {
+        container.innerHTML = '<div style="text-align: center; padding: 40px; color: #666;">Nenhuma conta a receber encontrada com os filtros aplicados</div>';
+        return;
+    }
+    
+    container.innerHTML = receivablesList.map(receivable => {
+        const amountDue = receivable.amountDue || 0;
+        const status = getReceivableStatus({ totalPaid: receivable.totalPaid, totalGross: receivable.totalGross, status: 'open' }, receivable.dueDate, amountDue);
+        const statusClass = {
+            'a-vencer': 'receivable-status-avencer',
+            'vencido': 'receivable-status-vencido',
+            'pago': 'receivable-status-pago'
+        }[status] || 'receivable-status-avencer';
+        
+        const statusText = {
+            'a-vencer': 'A Vencer',
+            'vencido': 'Vencido',
+            'pago': 'Pago'
+        }[status] || 'A Vencer';
+        
+        let dueDateFormatted = 'Não definida';
+        if (receivable.dueDate) {
+            if (receivable.dueDate instanceof Date) {
+                dueDateFormatted = receivable.dueDate.toLocaleDateString('pt-BR');
+            } else {
+                dueDateFormatted = formatDate(receivable.dueDate.toISOString());
+            }
+        }
+        const saleDateFormatted = formatDate(receivable.saleDate);
+        
+        const installmentInfo = receivable.installmentNumber && receivable.totalInstallments 
+            ? `Parcela ${receivable.installmentNumber}/${receivable.totalInstallments}` 
+            : (receivable.totalInstallments && receivable.totalInstallments > 1 
+                ? `${receivable.totalInstallments} parcelas` 
+                : '');
+        
+        const interestInfo = receivable.interest && receivable.interest > 0
+            ? `${receivable.interestType === 'percent' ? receivable.interest + '%' : formatCurrency(receivable.interest)}`
+            : '';
+        
+        return `
+            <div class="receivable-card ${statusClass}" onclick="openReceivableDetails(${receivable.id})" style="cursor: pointer;">
+                <div class="receivable-card-header">
+                    <div class="receivable-client-photo">
+                        ${receivable.clientPhoto 
+                            ? `<img src="${receivable.clientPhoto}" alt="${receivable.clientName}">` 
+                            : `<div class="receivable-client-icon">👤</div>`}
+                    </div>
+                    <div class="receivable-client-info">
+                        <h3>${receivable.clientName}</h3>
+                        ${receivable.clientPhone ? `<p class="receivable-phone">📞 ${receivable.clientPhone}</p>` : ''}
+                    </div>
+                    <div class="receivable-status-badge ${statusClass}">
+                        ${statusText}
+                    </div>
+                </div>
+                <div class="receivable-card-body">
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Nr. Venda:</span>
+                        <span class="receivable-value">${receivable.saleNumber}</span>
+                    </div>
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Data da Compra:</span>
+                        <span class="receivable-value">${saleDateFormatted}</span>
+                    </div>
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Data de Vencimento:</span>
+                        <span class="receivable-value receivable-due-date ${statusClass}">${dueDateFormatted}</span>
+                    </div>
+                    ${installmentInfo ? `
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Parcelas:</span>
+                        <span class="receivable-value">${installmentInfo}</span>
+                    </div>
+                    ` : ''}
+                    ${interestInfo ? `
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Juros:</span>
+                        <span class="receivable-value">${interestInfo}</span>
+                    </div>
+                    ` : ''}
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Valor Devido:</span>
+                        <span class="receivable-value receivable-amount">${formatCurrency(receivable.amountDue)}</span>
+                    </div>
+                    ${receivable.paymentMethod ? `
+                    <div class="receivable-info-row">
+                        <span class="receivable-label">Forma de Pagamento:</span>
+                        <span class="receivable-value">${receivable.paymentMethod}</span>
+                    </div>
+                    ` : ''}
+                </div>
+                <div class="receivable-card-actions">
+                    ${(receivable.amountDue || 0) === 0 ? `
+                    <button class="btn btn-small btn-danger" onclick="event.stopPropagation(); deleteReceivable(${receivable.id})" title="Excluir Conta">
+                        🗑️ Excluir
+                    </button>
+                    ` : ''}
+                    ${hasReceivablesPermission('alterar') && (receivable.amountDue || 0) > 0 ? `
+                    <button class="btn btn-small btn-success" onclick="event.stopPropagation(); openReceivablePaymentModal(${receivable.id})" title="Registrar Pagamento">
+                        💰 Registrar Pagamento
+                    </button>
+                    ` : ''}
+                    <button class="btn btn-small btn-info" onclick="event.stopPropagation(); generateWhatsAppMessage(${receivable.id})" title="Enviar Lembrete via WhatsApp">
+                        📱 WhatsApp
+                    </button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// Pesquisar contas a receber
+function searchReceivables() {
+    loadReceivablesList();
+}
+
+// Toggle painel de filtros
+function toggleReceivablesFilter() {
+    const panel = document.getElementById('receivables-filter-panel');
+    if (panel) {
+        panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+    }
+}
+
+// Aplicar filtros
+function applyReceivablesFilter() {
+    loadReceivablesList();
+    toggleReceivablesFilter();
+}
+
+// Limpar filtros
+function clearReceivablesFilter() {
+    document.getElementById('filter-receivables-client-name').value = '';
+    document.getElementById('filter-receivables-phone').value = '';
+    document.getElementById('filter-receivables-sale-number').value = '';
+    document.getElementById('filter-receivables-status').value = '';
+    document.getElementById('filter-receivables-date-start').value = '';
+    document.getElementById('filter-receivables-date-end').value = '';
+    loadReceivablesList();
+}
+
+// Abrir modal de detalhes da cobrança
+function openReceivableDetails(receivableId) {
+    const receivable = receivables.find(r => r.id === receivableId);
+    if (!receivable) return;
+    
+    // Buscar venda relacionada
+    const sale = sales.find(s => s.id === receivable.saleId);
+    
+    // Calcular valores
+    const totalGross = receivable.totalGross || 0;
+    const totalPaid = receivable.totalPaid || 0;
+    const amountDue = receivable.amountDue || 0;
+    const balance = amountDue;
+    
+    // Calcular juros/multa por atraso (preparado para futuro)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(receivable.dueDate);
+    dueDate.setHours(0, 0, 0, 0);
+    const daysOverdue = Math.max(0, Math.floor((today - dueDate) / (1000 * 60 * 60 * 24)));
+    const lateFee = 0; // Campo preparado para cálculo futuro
+    const lateInterest = 0; // Campo preparado para cálculo futuro
+    
+    // Formatar datas
+    let dueDateFormatted = 'Não definida';
+    if (receivable.dueDate) {
+        if (receivable.dueDate instanceof Date) {
+            dueDateFormatted = receivable.dueDate.toLocaleDateString('pt-BR');
+        } else {
+            dueDateFormatted = formatDate(new Date(receivable.dueDate).toISOString());
+        }
+    }
+    const saleDateFormatted = formatDate(receivable.saleDate);
+    
+    // Status do vencimento
+    const status = getReceivableStatus({ totalPaid: totalPaid, totalGross: totalGross, status: 'open' }, receivable.dueDate, amountDue);
+    const statusText = {
+        'a-vencer': 'A Vencer',
+        'vencido': 'Vencido',
+        'pago': 'Pago'
+    }[status] || 'A Vencer';
+    
+    const statusClass = {
+        'a-vencer': 'receivable-status-avencer',
+        'vencido': 'receivable-status-vencido',
+        'pago': 'receivable-status-pago'
+    }[status] || 'receivable-status-avencer';
+    
+    const installmentInfo = receivable.installmentNumber && receivable.totalInstallments 
+        ? `Parcela ${receivable.installmentNumber}/${receivable.totalInstallments}` 
+        : (receivable.totalInstallments && receivable.totalInstallments > 1 
+            ? `${receivable.totalInstallments} parcelas` 
+            : 'À vista');
+    
+    const interestInfo = receivable.interest && receivable.interest > 0
+        ? `${receivable.interestType === 'percent' ? receivable.interest + '%' : formatCurrency(receivable.interest)}`
+        : 'Nenhum';
+    
+    const content = `
+        <div class="receivable-details">
+            <div class="receivable-details-section">
+                <h3>👤 Detalhes do Cliente</h3>
+                <div class="receivable-details-info">
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Nome:</span>
+                        <span class="receivable-details-value">${receivable.clientName}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Telefone/WhatsApp:</span>
+                        <span class="receivable-details-value">${receivable.clientPhone || 'Não informado'}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="receivable-details-section">
+                <h3>💰 Dados da Dívida</h3>
+                <div class="receivable-details-info">
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Valor Original:</span>
+                        <span class="receivable-details-value">${formatCurrency(totalGross)}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Valor Pago:</span>
+                        <span class="receivable-details-value">${formatCurrency(totalPaid)}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Saldo Devedor:</span>
+                        <span class="receivable-details-value receivable-amount">${formatCurrency(balance)}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Data da Compra:</span>
+                        <span class="receivable-details-value">${saleDateFormatted}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Data de Vencimento:</span>
+                        ${hasReceivablesPermission('alterarVencimento') ? `
+                        <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+                            <input type="date" id="receivable-due-date-input" value="${receivable.dueDate ? (receivable.dueDate instanceof Date ? receivable.dueDate.toISOString().split('T')[0] : new Date(receivable.dueDate).toISOString().split('T')[0]) : ''}" style="flex: 1; padding: 8px; border: 1px solid #ddd; border-radius: 4px;">
+                            <button class="btn btn-small btn-primary" onclick="updateReceivableDueDate(${receivable.id})" title="Salvar Data de Vencimento">💾 Salvar</button>
+                        </div>
+                        ` : `
+                        <span class="receivable-details-value receivable-due-date ${statusClass}">${dueDateFormatted}</span>
+                        `}
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Status:</span>
+                        <span class="receivable-status-badge ${statusClass}">${statusText}</span>
+                    </div>
+                    ${installmentInfo !== 'À vista' ? `
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Parcelamento:</span>
+                        <span class="receivable-details-value">${installmentInfo}</span>
+                    </div>
+                    ` : ''}
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Juros:</span>
+                        <span class="receivable-details-value">${interestInfo}</span>
+                    </div>
+                    ${receivable.paymentMethod ? `
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Forma de Pagamento:</span>
+                        <span class="receivable-details-value">${receivable.paymentMethod}</span>
+                    </div>
+                    ` : ''}
+                </div>
+            </div>
+            
+            <div class="receivable-details-section">
+                <h3>🔗 Venda Relacionada</h3>
+                <div class="receivable-details-info">
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Número da Venda:</span>
+                        <span class="receivable-details-value">
+                            <a href="#" onclick="viewSaleFromReceivable(${receivable.saleId}); return false;" style="color: var(--primary-color); text-decoration: underline;">
+                                ${receivable.saleNumber}
+                            </a>
+                        </span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="receivable-details-section">
+                <h3>📊 Cálculo de Juros/Multa por Atraso</h3>
+                <div class="receivable-details-info">
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Dias em Atraso:</span>
+                        <span class="receivable-details-value">${daysOverdue} dias</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Multa por Atraso:</span>
+                        <span class="receivable-details-value">${formatCurrency(lateFee)}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Juros por Atraso:</span>
+                        <span class="receivable-details-value">${formatCurrency(lateInterest)}</span>
+                    </div>
+                    <div class="receivable-details-row">
+                        <span class="receivable-details-label">Total com Multa/Juros:</span>
+                        <span class="receivable-details-value">${formatCurrency(balance + lateFee + lateInterest)}</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="receivable-details-actions">
+                ${balance === 0 ? `
+                <button class="btn btn-danger" onclick="deleteReceivable(${receivable.id})">
+                    🗑️ Excluir Conta
+                </button>
+                ` : ''}
+                ${hasReceivablesPermission('alterar') && balance > 0 ? `
+                <button class="btn btn-success" onclick="openReceivablePaymentModal(${receivable.id})">
+                    💰 Registrar Pagamento
+                </button>
+                ` : ''}
+                <button class="btn btn-info" onclick="generateWhatsAppMessage(${receivable.id})">
+                    📱 Enviar Lembrete via WhatsApp
+                </button>
+            </div>
+        </div>
+    `;
+    
+    document.getElementById('receivable-details-content').innerHTML = content;
+    document.getElementById('receivable-details-modal').style.display = 'block';
+}
+
+// Fechar modal de detalhes
+function closeReceivableDetailsModal() {
+    document.getElementById('receivable-details-modal').style.display = 'none';
+}
+
+// Atualizar data de vencimento
+function updateReceivableDueDate(receivableId) {
+    // Verificar permissão para alterar data de vencimento
+    if (!hasReceivablesPermission('alterarVencimento')) {
+        alert('⚠️ Você não tem permissão para alterar a data de vencimento.');
+        return;
+    }
+    
+    const receivable = receivables.find(r => r.id === receivableId);
+    if (!receivable) {
+        alert('Erro: Cobrança não encontrada.');
+        return;
+    }
+    
+    const newDueDateInput = document.getElementById('receivable-due-date-input');
+    if (!newDueDateInput) {
+        alert('Erro: Campo de data não encontrado.');
+        return;
+    }
+    
+    const newDueDate = newDueDateInput.value;
+    if (!newDueDate) {
+        alert('Por favor, selecione uma data de vencimento.');
+        return;
+    }
+    
+    // Atualizar data de vencimento
+    receivable.dueDate = new Date(newDueDate);
+    saveReceivables();
+    
+    alert('Data de vencimento atualizada com sucesso!');
+    
+    // Recarregar detalhes para atualizar a exibição
+    openReceivableDetails(receivableId);
+    loadReceivablesList();
+}
+
+// Fechar modal ao clicar fora (adicionar event listener sem sobrescrever)
+document.addEventListener('DOMContentLoaded', function() {
+    const detailsModal = document.getElementById('receivable-details-modal');
+    const paymentModal = document.getElementById('receivable-payment-modal');
+    
+    if (detailsModal) {
+        detailsModal.addEventListener('click', function(event) {
+            if (event.target === detailsModal) {
+                closeReceivableDetailsModal();
+            }
+        });
+    }
+    
+    if (paymentModal) {
+        paymentModal.addEventListener('click', function(event) {
+            if (event.target === paymentModal) {
+                closeReceivablePaymentModal();
+            }
+        });
+    }
+});
+
+// Visualizar venda relacionada
+function viewSaleFromReceivable(saleId) {
+    closeReceivableDetailsModal();
+    // Navegar para a tela de vendas e mostrar a venda
+    showSection('inventory');
+    showInventoryView('exits');
+    // Aqui poderia implementar uma busca/filtro para mostrar a venda específica
+    alert(`Venda #${saleId} - Esta funcionalidade pode ser expandida para mostrar os detalhes da venda.`);
+}
+
+// Abrir modal de pagamento
+let currentReceivablePaymentId = null;
+function openReceivablePaymentModal(receivableId) {
+    // Verificar permissão para alterar dados
+    if (!hasReceivablesPermission('alterar')) {
+        alert('⚠️ Você não tem permissão para registrar pagamentos.');
+        return;
+    }
+    
+    currentReceivablePaymentId = receivableId;
+    const receivable = receivables.find(r => r.id === receivableId);
+    if (!receivable) return;
+    
+    const amountDue = receivable.amountDue || 0;
+    document.getElementById('payment-amount').value = amountDue.toFixed(2);
+    document.getElementById('payment-amount').max = amountDue;
+    
+    // Definir data atual como padrão
+    const today = new Date().toISOString().split('T')[0];
+    document.getElementById('payment-date').value = today;
+    document.getElementById('payment-notes').value = '';
+    
+    document.getElementById('receivable-payment-modal').style.display = 'block';
+}
+
+// Fechar modal de pagamento
+function closeReceivablePaymentModal() {
+    document.getElementById('receivable-payment-modal').style.display = 'none';
+    currentReceivablePaymentId = null;
+}
+
+// Confirmar pagamento
+function confirmReceivablePayment() {
+    if (!currentReceivablePaymentId) return;
+    
+    const receivable = receivables.find(r => r.id === currentReceivablePaymentId);
+    if (!receivable) {
+        alert('Erro: Cobrança não encontrada.');
+        return;
+    }
+    
+    const paymentAmount = parseFloat(document.getElementById('payment-amount').value) || 0;
+    const paymentDate = document.getElementById('payment-date').value;
+    const paymentNotes = document.getElementById('payment-notes').value;
+    
+    if (paymentAmount <= 0) {
+        alert('Por favor, informe um valor válido maior que zero.');
+        return;
+    }
+    
+    const amountDue = receivable.amountDue || 0;
+    if (paymentAmount > amountDue) {
+        alert(`O valor informado (${formatCurrency(paymentAmount)}) não pode ser maior que o valor devido (${formatCurrency(amountDue)}).`);
+        return;
+    }
+    
+    // Atualizar venda relacionada
+    const sale = sales.find(s => s.id === receivable.saleId);
+    if (sale) {
+        sale.totalPaid = (sale.totalPaid || 0) + paymentAmount;
+        if (sale.totalPaid >= sale.totalGross) {
+            sale.status = 'completed';
+        } else {
+            sale.status = 'partial';
+        }
+        saveSales();
+    }
+    
+    // Atualizar receivable
+    receivable.amountDue = amountDue - paymentAmount;
+    receivable.totalPaid = (receivable.totalPaid || 0) + paymentAmount;
+    
+    if (receivable.amountDue <= 0) {
+        receivable.status = 'paid';
+        receivable.amountDue = 0;
+    }
+    
+    // Adicionar histórico de pagamento
+    if (!receivable.paymentHistory) {
+        receivable.paymentHistory = [];
+    }
+    receivable.paymentHistory.push({
+        amount: paymentAmount,
+        date: paymentDate,
+        notes: paymentNotes,
+        createdAt: new Date().toISOString()
+    });
+    
+    saveReceivables();
+    
+    alert('Pagamento registrado com sucesso!');
+    closeReceivablePaymentModal();
+    closeReceivableDetailsModal();
+    loadReceivablesList();
+}
+
+// Gerar mensagem para WhatsApp
+function generateWhatsAppMessage(receivableId) {
+    const receivable = receivables.find(r => r.id === receivableId);
+    if (!receivable) return;
+    
+    const clientName = receivable.clientName;
+    const clientPhone = receivable.clientPhone || '';
+    const amountDue = formatCurrency(receivable.amountDue);
+    
+    let dueDateFormatted = 'Não definida';
+    if (receivable.dueDate) {
+        if (receivable.dueDate instanceof Date) {
+            dueDateFormatted = receivable.dueDate.toLocaleDateString('pt-BR');
+        } else {
+            dueDateFormatted = formatDate(new Date(receivable.dueDate).toISOString());
+        }
+    }
+    
+    const saleNumber = receivable.saleNumber;
+    
+    const message = `Olá ${clientName}!
+
+Lembramos que você possui uma pendência financeira conosco:
+
+📋 Número da Venda: ${saleNumber}
+💰 Valor Devido: ${amountDue}
+📅 Data de Vencimento: ${dueDateFormatted}
+
+Por favor, entre em contato conosco para regularizar sua situação.
+
+Agradecemos a compreensão!`;
+    
+    // Copiar mensagem para área de transferência
+    navigator.clipboard.writeText(message).then(() => {
+        alert('✅ Mensagem copiada para a área de transferência!\n\nAgora você pode colar e enviar via WhatsApp.');
+    }).catch(() => {
+        // Fallback para navegadores mais antigos
+        const textarea = document.createElement('textarea');
+        textarea.value = message;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+        alert('✅ Mensagem copiada para a área de transferência!\n\nAgora você pode colar e enviar via WhatsApp.');
+    });
+    
+    // Se tiver telefone, abrir WhatsApp Web
+    if (clientPhone) {
+        const phoneNumber = clientPhone.replace(/\D/g, ''); // Remove caracteres não numéricos
+        const whatsappUrl = `https://wa.me/${phoneNumber}?text=${encodeURIComponent(message)}`;
+        window.open(whatsappUrl, '_blank');
+    }
+}
+
+// Excluir conta a receber
+function deleteReceivable(receivableId) {
+    const receivable = receivables.find(r => r.id === receivableId);
+    if (!receivable) {
+        alert('Erro: Conta não encontrada.');
+        return;
+    }
+    
+    const amountDue = receivable.amountDue || 0;
+    if (amountDue > 0) {
+        alert('⚠️ Não é possível excluir uma conta que ainda possui valor a receber.');
+        return;
+    }
+    
+    if (!confirm(`Tem certeza que deseja excluir esta conta?\n\nCliente: ${receivable.clientName}\nNúmero da Venda: ${receivable.saleNumber}\n\nEsta ação não pode ser desfeita.`)) {
+        return;
+    }
+    
+    // Remover do array
+    const index = receivables.findIndex(r => r.id === receivableId);
+    if (index !== -1) {
+        receivables.splice(index, 1);
+        saveReceivables();
+        loadReceivablesList();
+        alert('Conta excluída com sucesso!');
+    }
+}

@@ -44,6 +44,7 @@
             <div class="header-top">
                 <div class="logo-container">
                     <img id="company-logo" src="" alt="Logo da Empresa" class="logo-img" style="display: none;">
+                    <video id="company-logo-video" src="" alt="Logo da Empresa" class="logo-img" style="display: none; max-width: 150px; max-height: 150px; border-radius: 8px;" autoplay loop muted playsinline></video>
                     <h1 id="company-name">Nome da Empresa</h1>
                 </div>
                 <div class="header-right">
@@ -66,8 +67,8 @@
                     </div>
                     <nav class="nav-menu">
                         <button class="nav-btn active" data-section="home">Início</button>
-                        <button class="nav-btn" data-section="greetings">Felicitações</button>
-                        <button class="nav-btn" data-section="all-clients">Clientes</button>
+                        <button class="nav-btn" data-section="sales">Vender</button>
+                        <button class="nav-btn" data-section="inventory">Controle de Estoque</button>
                         <div class="menu-dots-container">
                             <button class="nav-btn menu-dots" data-section="more-options" onclick="showSection('more-options')">⋯</button>
                         </div>
@@ -109,47 +110,54 @@
                 <div id="license-expiration-warning-home" class="license-expiration-warning" style="display: none;">
                     <p>⚠️ Sua licença está expirada. Por favor, renove sua licença.</p>
                 </div>
-                <div class="stats-container">
-                    <div class="stat-card">
-                        <h3>Clientes Cadastrados</h3>
-                        <div class="birthday-stats">
-                            <div class="birthday-stat-item" style="flex: 1;">
-                                <span class="birthday-stat-label">Total</span>
-                                <span id="total-clients" class="birthday-stat-value">0</span>
-                            </div>
-                        </div>
+                
+                <!-- Card de Alerta de Estoque Crítico -->
+                <div id="critical-stock-alert-container" class="critical-stock-alert-container" style="display: none;">
+                    <div class="critical-stock-alert-header">
+                        <h3>⚠️ Alerta de Estoque Crítico</h3>
+                        <p>Produtos com estoque baixo ou crítico</p>
                     </div>
-                    <div class="stat-card">
-                        <h3>Aniversários</h3>
-                        <div class="birthday-stats">
-                            <div class="birthday-stat-item">
-                                <span class="birthday-stat-label">Hoje</span>
-                                <span id="birthday-count-today" class="birthday-stat-value">0</span>
-                            </div>
-                            <div class="birthday-stat-item" id="birthday-stat-range1" style="display: none;">
-                                <span id="birthday-label-range1" class="birthday-stat-label">7 dias</span>
-                                <span id="birthday-count-range1" class="birthday-stat-value">0</span>
-                            </div>
-                            <div class="birthday-stat-item" id="birthday-stat-range2" style="display: none;">
-                                <span id="birthday-label-range2" class="birthday-stat-label">30 dias</span>
-                                <span id="birthday-count-range2" class="birthday-stat-value">0</span>
-                            </div>
-                        </div>
+                    <div id="critical-stock-products-list" class="critical-stock-products-list">
+                        <!-- Produtos serão inseridos aqui via JavaScript -->
                     </div>
                 </div>
-
-                <!-- Lista de Aniversariantes de Hoje no Dashboard -->
-                <div id="today-birthdays-dashboard" class="today-birthdays-dashboard">
-                    <!-- Cards de aniversariantes de hoje serão carregados via JavaScript -->
+                
+                <!-- Cards de Alerta de Vencimento de Contas a Receber -->
+                <div id="receivables-expiration-alert-container" class="receivables-expiration-alert-container" style="display: none;">
+                    <!-- Cards serão inseridos aqui via JavaScript -->
                 </div>
+                
+                <!-- Tela inicial limpa - elementos movidos para outras seções -->
             </div>
         </section>
 
         <!-- Seção Felicitações -->
         <section id="greetings" class="section">
             <h2>Felicitações</h2>
+            <!-- Card de Aniversários movido da tela inicial -->
+            <div class="stat-card" style="margin-bottom: 30px;">
+                <h3>Aniversários</h3>
+                <div class="birthday-stats">
+                    <div class="birthday-stat-item">
+                        <span class="birthday-stat-label">Hoje</span>
+                        <span id="birthday-count-today" class="birthday-stat-value">0</span>
+                    </div>
+                    <div class="birthday-stat-item" id="birthday-stat-range1" style="display: none;">
+                        <span id="birthday-label-range1" class="birthday-stat-label">7 dias</span>
+                        <span id="birthday-count-range1" class="birthday-stat-value">0</span>
+                    </div>
+                    <div class="birthday-stat-item" id="birthday-stat-range2" style="display: none;">
+                        <span id="birthday-label-range2" class="birthday-stat-label">30 dias</span>
+                        <span id="birthday-count-range2" class="birthday-stat-value">0</span>
+                    </div>
+                </div>
+            </div>
             <div id="clients-list" class="clients-list"></div>
-            <button id="send-birthday-btn" class="btn btn-primary">Enviar Felicitações</button>
+            <!-- Painel de Aniversariantes movido da tela inicial -->
+            <div id="today-birthdays-dashboard" class="today-birthdays-dashboard" style="margin-top: 30px;">
+                <!-- Cards de aniversariantes de hoje serão carregados via JavaScript -->
+            </div>
+            <button id="send-birthday-btn" class="btn btn-primary" style="margin-top: 30px;">Enviar Felicitações</button>
         </section>
 
         <!-- Seção Lista de Todos os Clientes -->
@@ -158,7 +166,25 @@
                 <!-- Conteúdo Principal -->
                 <div class="clients-main-content">
                     <div id="clients-list-view" class="clients-view active">
-                        <h2>Lista de Clientes</h2>
+                        <div class="clients-header">
+                            <h2>Clientes</h2>
+                            <div style="display: flex; gap: 10px;">
+                                <button class="btn btn-primary" onclick="showSection('greetings')">🎉 Felicitações</button>
+                                <button class="btn btn-primary" onclick="showClientsRegisterView()">➕ Cadastrar Novo Cliente</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Card de Clientes Cadastrados -->
+                        <div class="stat-card" style="margin-bottom: 30px;">
+                            <h3>Clientes Cadastrados</h3>
+                            <div class="birthday-stats">
+                                <div class="birthday-stat-item" style="flex: 1;">
+                                    <span class="birthday-stat-label">Total</span>
+                                    <span id="total-clients" class="birthday-stat-value">0</span>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <div id="all-clients-list" class="clients-list"></div>
                     </div>
                     
@@ -229,15 +255,1527 @@
             </div>
         </section>
 
+        <!-- Seção Vender -->
+        <section id="sales" class="section sales-section">
+            <div class="sales-container">
+                <!-- Cabeçalho da Venda -->
+                <div class="sales-header">
+                    <div class="sales-header-top">
+                        <div class="sales-header-left">
+                            <div class="sales-header-item">
+                                <label>Nr. Venda:</label>
+                                <input type="text" id="sale-number" readonly>
+                            </div>
+                            <div class="sales-header-item">
+                                <label>Data Venda:</label>
+                                <input type="text" id="sale-date" readonly>
+                            </div>
+                            <div class="sales-header-item">
+                                <label>Cliente:</label>
+                                <div class="client-select-wrapper">
+                                    <input type="text" id="sale-client" placeholder="CLIENTE PADRÃO" readonly onclick="openClientSearchPanel()">
+                                    <button class="btn btn-small" onclick="openClientSearchPanel()">🔍</button>
+                                </div>
+                            </div>
+                            <div class="sales-header-item">
+                                <label>Vendedor:</label>
+                                <input type="text" id="sale-seller" readonly>
+                            </div>
+                        </div>
+                        <div class="sales-header-right">
+                            <div class="sales-clock" id="sales-clock">--:--:--</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Área Principal de Vendas -->
+                <div class="sales-main">
+                    <div class="sales-left-panel">
+                        <!-- Quantidade -->
+                        <div class="sales-quantity-box">
+                            <label>Qtd</label>
+                            <input type="number" id="sale-quantity" value="1" min="1" step="1" class="quantity-input" onkeydown="handleQuantityEnter(event)">
+                        </div>
+                        <!-- Imagem do Produto -->
+                        <div class="sales-product-image">
+                            <img id="sale-product-img" src="" alt="Produto" style="display: none;">
+                            <div id="sale-product-img-placeholder">📦</div>
+                        </div>
+                    </div>
+
+                    <div class="sales-center-panel">
+                        <!-- Campos de Produto -->
+                        <div class="sales-product-fields">
+                            <div class="form-group">
+                                <label for="sale-description">Descrição</label>
+                                <input type="text" id="sale-description" placeholder="Digite a descrição do produto" readonly onclick="openProductSearchFromDescription()" style="cursor: pointer;">
+                            </div>
+                            <div class="form-group">
+                                <label for="sale-barcode">Código Barras</label>
+                                <input type="text" id="sale-barcode" placeholder="Digite o código de barras" onkeydown="handleBarcodeEnter(event)">
+                            </div>
+                            <div class="form-group form-group-discount">
+                                <div class="discount-header">
+                                    <label for="sale-discount" id="discount-label">Desconto/Acréscimo (%)</label>
+                                    <label class="discount-toggle-switch">
+                                        <input type="checkbox" id="discount-type-toggle" onchange="toggleDiscountType()">
+                                        <span class="discount-toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <input type="number" id="sale-discount" step="0.01" value="0" placeholder="0.00" onchange="handleDiscountChange()" onkeydown="handleDiscountEnter(event)">
+                            </div>
+                            <!-- Campos para Venda a Prazo -->
+                            <div id="credit-payment-fields" class="credit-payment-fields" style="display: none;">
+                                <div class="form-group">
+                                    <label for="sale-due-date">Data de Vencimento</label>
+                                    <input type="date" id="sale-due-date" onchange="updateCreditPaymentInfo()">
+                                </div>
+                                <div class="form-group">
+                                    <label for="sale-installments">Parcelas</label>
+                                    <input type="number" id="sale-installments" min="1" max="99" value="1" placeholder="1" onchange="updateCreditPaymentInfo()">
+                                </div>
+                                <div class="form-group form-group-interest">
+                                    <div class="discount-header">
+                                        <label for="sale-interest" id="interest-label">Juros (%)</label>
+                                        <label class="discount-toggle-switch">
+                                            <input type="checkbox" id="interest-type-toggle" onchange="toggleInterestType()">
+                                            <span class="discount-toggle-slider"></span>
+                                        </label>
+                                    </div>
+                                    <input type="number" id="sale-interest" step="0.01" value="0" placeholder="0.00" onchange="updateCreditPaymentInfo()">
+                                </div>
+                            </div>
+                            <div class="form-group">
+                                <label for="sale-unit-value">Valor Unitário</label>
+                                <input type="number" id="sale-unit-value" step="0.01" min="0" placeholder="0.00" onchange="calculateItemTotal()" onkeydown="handleUnitValueEnter(event)">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sales-right-panel">
+                        <!-- Lista de Itens da Venda -->
+                        <div class="sales-items-list">
+                            <h3>Itens da Venda</h3>
+                            <div id="sale-panel-content">
+                                <div id="product-search-inline-panel" class="product-search-inline-panel" style="display: none;">
+                                    <div class="product-search-inline-actions">
+                                        <button class="btn btn-primary" onclick="confirmProductSelection()">Adicionar</button>
+                                        <button class="btn btn-secondary" onclick="closeProductSearch()">Cancelar</button>
+                                    </div>
+                                    <input type="text" id="product-search-inline-input" placeholder="Digite o nome, código ou preço do produto..." oninput="handleProductSearchInput()" onkeydown="handleProductSearchKeydown(event)">
+                                    <div id="product-search-inline-results" class="product-search-inline-results"></div>
+                                </div>
+                                <div id="client-search-inline-panel" class="product-search-inline-panel" style="display: none;">
+                                    <div class="product-search-inline-actions">
+                                        <button class="btn btn-primary" onclick="confirmClientSelection()">Selecionar</button>
+                                        <button class="btn btn-secondary" onclick="closeClientSearch()">Cancelar</button>
+                                    </div>
+                                    <input type="text" id="client-search-inline-input" placeholder="Digite o nome ou telefone do cliente..." oninput="handleClientSearchInput()" onkeydown="handleClientSearchKeydown(event)">
+                                    <div id="client-search-inline-results" class="product-search-inline-results"></div>
+                                </div>
+                                <div id="sale-items-container" class="sale-items-container">
+                                    <p class="empty-message">Nenhum item adicionado</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="sales-logo-panel">
+                        <!-- Logo da Empresa (sempre exibida) -->
+                    <div class="sales-logo-area" id="sales-logo-area">
+                        <img id="sales-company-logo" src="" alt="Logo" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px;">
+                        <video id="sales-company-logo-video" src="" alt="Logo" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px;" autoplay loop muted playsinline></video>
+                        <div id="sales-logo-placeholder">Logo</div>
+                            <div id="sales-pix-info" class="sales-pix-info" style="display: none;">
+                                <img id="sales-pix-qr" alt="QR Code PIX">
+                                <div class="sales-pix-details">
+                                    <p id="sales-pix-key"></p>
+                                    <button class="btn btn-primary" onclick="copyPixPayload()">Copiar Código PIX</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Rodapé - Formas de Pagamento e Totais -->
+                <div class="sales-footer">
+                    <div class="sales-payment-section">
+                        <div class="payment-forms">
+                            <div class="payment-form-item">
+                                <label for="payment-method-1">Forma Pgto (1):</label>
+                                <select id="payment-method-1" onchange="updatePaymentMethod(1)">
+                                    <option value="">Selecione...</option>
+                                </select>
+                                <label for="payment-value-1" style="display: none;">Valor Forma Pgto (1)</label>
+                                <input type="number" id="payment-value-1" step="0.01" min="0" placeholder="0.00" oninput="validatePaymentValue(1); calculateTotals()" onkeydown="handlePaymentEnter(event, 1)">
+                            </div>
+                            <div class="payment-form-item">
+                                <label for="payment-method-2">Forma Pgto (2):</label>
+                                <select id="payment-method-2" onchange="updatePaymentMethod(2)">
+                                    <option value="">Selecione...</option>
+                                </select>
+                                <label for="payment-value-2" style="display: none;">Valor Forma Pgto (2)</label>
+                                <input type="number" id="payment-value-2" step="0.01" min="0" placeholder="0.00" oninput="validatePaymentValue(2); calculateTotals()" onkeydown="handlePaymentEnter(event, 2)">
+                            </div>
+                        </div>
+                        <div class="sales-totals-left">
+                            <div class="total-item">
+                                <label>Total Bruto:</label>
+                                <input type="text" id="total-gross" readonly value="R$ 0,00">
+                            </div>
+                            <div class="total-item">
+                                <label>Qtd. Itens:</label>
+                                <input type="text" id="total-items" readonly value="0">
+                            </div>
+                        </div>
+                    </div>
+                    <div class="sales-totals-right">
+                        <div class="total-display total-display-green" id="total-paid-display">
+                            <label>TOTAL PAGO</label>
+                            <div class="total-amount" id="total-paid-value">R$ 0,00</div>
+                        </div>
+                        <!-- Card de Total de Descontos (à esquerda do Total Líquido) -->
+                        <div class="discount-total-card" id="discount-total-card" style="display: none;">
+                            <div class="discount-total-title">Total Desconto</div>
+                            <div class="discount-total-item" id="discount-items-total">Sobre itens: R$ 0,00</div>
+                            <div class="discount-total-item" id="discount-liquid-total">Sobre total líquido: R$ 0,00</div>
+                        </div>
+                        <div class="total-display total-display-blue" id="total-display">
+                            <label id="total-display-label">Total a Pagar</label>
+                            <div class="total-amount" id="total-liquid">R$ 0,00</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Botões de Ação -->
+                <div class="sales-actions">
+                    <button class="btn btn-primary" onclick="newSale()">Nova Venda</button>
+                    <button class="btn btn-success" onclick="finalizeSale()">Finalizar Venda</button>
+                    <button class="btn btn-secondary" onclick="searchSale()">Localizar Venda</button>
+                    <div class="btn-dropdown-wrapper">
+                        <button class="btn btn-secondary" onclick="togglePrintDropdown()">Imprimir Cupom</button>
+                        <div class="btn-dropdown-menu" id="print-dropdown-menu" style="display: none;">
+                            <button class="btn-dropdown-item" onclick="printReceipt80mm(); togglePrintDropdown();">Imprimir Cupom 80mm</button>
+                            <button class="btn-dropdown-item" onclick="printReceipt58mm(); togglePrintDropdown();">Imprimir Cupom 58mm</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-info" onclick="applyGlobalDiscount()">Aplicar Desconto</button>
+                    <button class="btn btn-danger" onclick="removeProduct()">Excluir Prod.</button>
+                    <button class="btn btn-danger" onclick="cancelSale()">Cancelar / Excluir Venda</button>
+                    <button class="btn btn-warning" onclick="resetDiscount()">Zerar Desconto</button>
+                    <button class="btn btn-info" onclick="openSaleProductSearch()">Pesq. Produtos</button>
+                    <button class="btn btn-secondary" onclick="exitSales()">Sair</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Seção Controle de Estoque -->
+        <section id="inventory" class="section">
+            <div class="inventory-layout">
+                <!-- Menu de Opções -->
+                <div class="inventory-menu">
+                    <h2>Controle de Estoque</h2>
+                    <div class="inventory-options">
+                        <button class="inventory-option-btn" onclick="showInventoryView('clients')">
+                            👥 Clientes <span id="inventory-clients-count" class="inventory-count-badge">[0]</span>
+                        </button>
+                        <button class="inventory-option-btn active" onclick="showInventoryView('products')">
+                            📦 Produtos <span id="inventory-products-count" class="inventory-count-badge">[0]</span>
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('brands')">
+                            🏷️ Marca/Fabricante <span id="inventory-brands-count" class="inventory-count-badge">[0]</span>
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('categories')">
+                            📁 Categorias <span id="inventory-categories-count" class="inventory-count-badge">[0]</span>
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('suppliers')">
+                            🏢 Fornecedor <span id="inventory-suppliers-count" class="inventory-count-badge">[0]</span>
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('entries')">
+                            📥 Entradas/Recebimentos
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('exits')">
+                            📤 Saídas/Vendas
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('receivables')">
+                            💰 Contas a Receber
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('reports')">
+                            📊 Relatórios
+                        </button>
+                        <button class="inventory-option-btn" onclick="showInventoryView('settings')">
+                            ⚙️ Configurações
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Conteúdo Principal -->
+                <div class="inventory-main-content">
+                    <!-- Tela de Produtos -->
+                    <div id="inventory-products-view" class="inventory-view active">
+                        <div class="products-layout">
+                            <div class="products-main-content">
+                                <!-- Lista de Produtos -->
+                                <div id="products-list-view" class="products-view active">
+                                    <div class="products-header">
+                                        <h2>Produtos</h2>
+                                        <button class="btn btn-primary" onclick="showProductsRegisterView()">➕ Cadastrar Novo Produto</button>
+                                    </div>
+                                    
+                                    <div class="products-filters">
+                                        <div class="form-group" style="flex: 1; margin-right: 15px;">
+                                            <input type="text" id="product-search-input" class="form-control" placeholder="🔍 Pesquisar por nome..." oninput="searchProducts()">
+                                        </div>
+                                        <div class="form-group" style="flex: 0 0 250px;">
+                                            <select id="product-category-filter" class="form-control" onchange="filterProductsByCategory()">
+                                                <option value="">Todas as Categorias</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="products-list" class="clients-list"></div>
+                                </div>
+                                
+                                <!-- Formulário de Cadastro/Edição -->
+                                <div id="products-register-view" class="products-view">
+                                    <h2 id="product-form-title">Cadastrar Novo Produto</h2>
+                                    <form id="product-form" class="form">
+                                        <input type="hidden" id="product-id">
+                                        
+                                        <!-- 🌟 Identificação & Nomenclatura -->
+                                        <div class="form-section">
+                                            <h3>🌟 Identificação & Nomenclatura</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-name">Nome do Produto *</label>
+                                                <input type="text" id="product-name" required>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-sku">SKU</label>
+                                                <input type="text" id="product-sku">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-barcode">Código de Barras (EAN/UPC) *</label>
+                                                <input type="text" id="product-barcode" required>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 💰 Preço & Finanças -->
+                                        <div class="form-section">
+                                            <h3>💰 Preço & Finanças</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-cost">Custo</label>
+                                                <input type="number" id="product-cost" step="0.01" min="0" placeholder="0,00">
+                                                <small>Marcar como crucial para o negócio, mas não impede o cadastro</small>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-sale-price">Preço de Venda *</label>
+                                                <input type="number" id="product-sale-price" step="0.01" min="0" required placeholder="0,00">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-ncm">NCM (Nomenclatura Comum do Mercosul)</label>
+                                                <input type="text" id="product-ncm" placeholder="Ex: 12345678">
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 📦 Estoque & Logística -->
+                                        <div class="form-section">
+                                            <h3>📦 Estoque & Logística</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-stock">Quantidade em Estoque *</label>
+                                                <input type="number" id="product-stock" min="0" step="1" placeholder="0" value="0" required>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-weight">Peso (para cálculo de frete) - kg</label>
+                                                <input type="number" id="product-weight" step="0.01" min="0" placeholder="0,00">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label>Dimensões (cm)</label>
+                                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;">
+                                                    <div>
+                                                        <input type="number" id="product-height" step="0.01" min="0" placeholder="Altura">
+                                                    </div>
+                                                    <div>
+                                                        <input type="number" id="product-width" step="0.01" min="0" placeholder="Largura">
+                                                    </div>
+                                                    <div>
+                                                        <input type="number" id="product-length" step="0.01" min="0" placeholder="Comprimento">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- ✍️ Conteúdo & Organização -->
+                                        <div class="form-section">
+                                            <h3>✍️ Conteúdo & Organização</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-description">Descrição Complementar</label>
+                                                <textarea id="product-description" rows="4" placeholder="Descrição do produto..."></textarea>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-image-input">Imagem do Produto</label>
+                                                <input type="file" id="product-image-input" accept="image/*">
+                                                <div class="photo-preview">
+                                                    <img id="product-image-preview" src="" alt="Preview da Imagem" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px; margin-top: 10px;">
+                                                </div>
+                                                <button type="button" class="btn btn-danger" id="remove-product-image-btn" onclick="removeProductImage()" style="margin-top: 10px; display: none;">🗑️ Remover Imagem</button>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-category">Categoria</label>
+                                                <select id="product-category" onchange="checkProductCategory()">
+                                                    <option value="">Selecione uma categoria...</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group" id="product-category-other-group" style="display: none;">
+                                                <label for="product-category-other">Especifique a Categoria</label>
+                                                <input type="text" id="product-category-other" placeholder="Digite o nome da categoria" maxlength="50">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-brand">Marca/Fabricante</label>
+                                                <select id="product-brand" onchange="checkProductBrand()">
+                                                    <option value="">Selecione uma marca...</option>
+                                                    <option value="Nestlé">Nestlé</option>
+                                                    <option value="Coca-Cola">Coca-Cola</option>
+                                                    <option value="PepsiCo">PepsiCo</option>
+                                                    <option value="Unilever">Unilever</option>
+                                                    <option value="Procter & Gamble">Procter & Gamble</option>
+                                                    <option value="Ambev">Ambev</option>
+                                                    <option value="Bunge">Bunge</option>
+                                                    <option value="Cargill">Cargill</option>
+                                                    <option value="BRF">BRF</option>
+                                                    <option value="JBS">JBS</option>
+                                                    <option value="M. Dias Branco">M. Dias Branco</option>
+                                                    <option value="Vigor">Vigor</option>
+                                                    <option value="Danone">Danone</option>
+                                                    <option value="Bauducco">Bauducco</option>
+                                                    <option value="Marilan">Marilan</option>
+                                                    <option value="Piraquê">Piraquê</option>
+                                                    <option value="Yoki">Yoki</option>
+                                                    <option value="Arisco">Arisco</option>
+                                                    <option value="Knorr">Knorr</option>
+                                                    <option value="Maggi">Maggi</option>
+                                                    <option value="Hellmann's">Hellmann's</option>
+                                                    <option value="Omo">Omo</option>
+                                                    <option value="Comfort">Comfort</option>
+                                                    <option value="Downy">Downy</option>
+                                                    <option value="Ariel">Ariel</option>
+                                                    <option value="Head & Shoulders">Head & Shoulders</option>
+                                                    <option value="Pantene">Pantene</option>
+                                                    <option value="Dove">Dove</option>
+                                                    <option value="Rexona">Rexona</option>
+                                                    <option value="Axe">Axe</option>
+                                                    <option value="Nivea">Nivea</option>
+                                                    <option value="Johnson & Johnson">Johnson & Johnson</option>
+                                                    <option value="Colgate">Colgate</option>
+                                                    <option value="Close Up">Close Up</option>
+                                                    <option value="Oral-B">Oral-B</option>
+                                                    <option value="Gillette">Gillette</option>
+                                                    <option value="Outras">Outras</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group" id="product-brand-other-group" style="display: none;">
+                                                <label for="product-brand-other">Especifique a Marca</label>
+                                                <input type="text" id="product-brand-other" placeholder="Digite o nome da marca">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="product-supplier">Fornecedor *</label>
+                                                <select id="product-supplier" onchange="checkProductSupplier()" required>
+                                                    <option value="">Selecione um fornecedor...</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group" id="product-supplier-other-group" style="display: none;">
+                                                <label for="product-supplier-other">Nome do Novo Fornecedor *</label>
+                                                <input type="text" id="product-supplier-other" placeholder="Digite o nome do fornecedor" maxlength="100">
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary">Salvar Produto</button>
+                                        <button type="button" class="btn btn-secondary" onclick="showProductsListView()" style="margin-left: 10px;">Cancelar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tela de Marca/Fabricante -->
+                    <div id="inventory-brands-view" class="inventory-view">
+                        <div class="products-layout">
+                            <div class="products-main-content">
+                                <!-- Lista de Marcas/Fabricantes -->
+                                <div id="brands-list-view" class="products-view active">
+                                    <div class="products-header">
+                                        <h2>Marca/Fabricante</h2>
+                                        <button class="btn btn-primary" onclick="showBrandsRegisterView()">➕ Cadastrar Marca/Fabricante</button>
+                                    </div>
+                                    
+                                    <div class="products-filters">
+                                        <div class="form-group" style="flex: 1; margin-right: 15px;">
+                                            <input type="text" id="brand-search-input" class="form-control" placeholder="🔍 Pesquisar por nome..." oninput="searchBrands()">
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="brands-list" class="clients-list"></div>
+                                </div>
+                                
+                                <!-- Formulário de Cadastro/Edição -->
+                                <div id="brands-register-view" class="products-view">
+                                    <h2 id="brand-form-title">Cadastrar Marca/Fabricante</h2>
+                                    <form id="brand-form" class="form">
+                                        <input type="hidden" id="brand-id">
+                                        
+                                        <div class="form-section">
+                                            <h3>📋 Informações Básicas</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-nome-completo">Nome Completo da Marca/Fabricante *</label>
+                                                <input type="text" id="brand-nome-completo" required maxlength="100" placeholder="Nome oficial da marca/fabricante">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-nome-fantasia">Nome Fantasia</label>
+                                                <input type="text" id="brand-nome-fantasia" maxlength="100" placeholder="Se diferente do nome completo">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-tipo-pessoa">Tipo de Identificador</label>
+                                                <select id="brand-tipo-pessoa">
+                                                    <option value="">Selecione...</option>
+                                                    <option value="CNPJ">CNPJ</option>
+                                                    <option value="CPF">CPF</option>
+                                                    <option value="IE">IE (Inscrição Estadual)</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-identificador-fiscal">CPF/CNPJ/IE</label>
+                                                <input type="text" id="brand-identificador-fiscal" maxlength="20" placeholder="Número formatado">
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-section">
+                                            <h3>📞 Contato</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-telefone-principal">Telefone Principal/Comercial</label>
+                                                <input type="tel" id="brand-telefone-principal" placeholder="(99) 9999-9999">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-email-principal">E-mail de Contato Principal</label>
+                                                <input type="email" id="brand-email-principal" placeholder="email@exemplo.com">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-site-oficial">Site Oficial/Rede Social</label>
+                                                <input type="url" id="brand-site-oficial" placeholder="www.exemplo.com ou @rede_social">
+                                                <small>Será armazenado sem http:// ou https://</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-section">
+                                            <h3>📍 Endereço</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-endereco-completo">Endereço Completo</label>
+                                                <input type="text" id="brand-endereco-completo" placeholder="Rua, número, complemento, bairro">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-cidade-estado-cep">Cidade, Estado e CEP</label>
+                                                <input type="text" id="brand-cidade-estado-cep" placeholder="Cidade, Estado, CEP">
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-section">
+                                            <h3>👤 Contato e Relacionamento</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-contato-chave">Nome do Contato Chave</label>
+                                                <input type="text" id="brand-contato-chave" placeholder="Pessoa específica para falar (ex: Vendedor João)">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-condicoes-pagamento">Condições de Pagamento Padrão</label>
+                                                <textarea id="brand-condicoes-pagamento" rows="3" placeholder="Ex: 30/60/90, 5% Desc. à vista"></textarea>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="brand-prazo-entrega">Prazo de Entrega Estimado</label>
+                                                <input type="text" id="brand-prazo-entrega" placeholder="Ex: 7 dias úteis">
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-section">
+                                            <h3>⚙️ Status</h3>
+                                            
+                                            <div class="form-group">
+                                                <label>
+                                                    <input type="checkbox" id="brand-status-ativo" checked>
+                                                    Ativo
+                                                </label>
+                                                <small>Marcas/Fabricantes inativos não aparecerão nas opções de produtos</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary">Salvar Marca/Fabricante</button>
+                                        <button type="button" class="btn btn-secondary" onclick="showBrandsListView()" style="margin-left: 10px;">Cancelar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tela de Categorias -->
+                    <div id="inventory-categories-view" class="inventory-view">
+                        <div class="products-layout">
+                            <div class="products-main-content">
+                                <!-- Lista de Categorias -->
+                                <div id="categories-list-view" class="products-view active">
+                                    <div class="products-header">
+                                        <h2>Categorias</h2>
+                                        <button class="btn btn-primary" onclick="showCategoriesRegisterView()">➕ Cadastrar Categoria</button>
+                                    </div>
+                                    
+                                    <div class="products-filters">
+                                        <div class="form-group" style="flex: 1; margin-right: 15px;">
+                                            <input type="text" id="category-search-input" class="form-control" placeholder="🔍 Pesquisar por nome..." oninput="searchCategories()">
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="categories-list" class="clients-list"></div>
+                                </div>
+                                
+                                <!-- Formulário de Cadastro/Edição -->
+                                <div id="categories-register-view" class="products-view">
+                                    <h2 id="category-form-title">Cadastrar Categoria</h2>
+                                    <form id="category-form" class="form">
+                                        <input type="hidden" id="category-id">
+                                        
+                                        <div class="form-section">
+                                            <h3>📋 Informações Básicas</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="category-nome">Nome da Categoria *</label>
+                                                <input type="text" id="category-nome" required maxlength="50" placeholder="Ex: Eletrônicos, Vestuário, Alimentos">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="category-pai-id">Categoria Pai (Hierarquia)</label>
+                                                <select id="category-pai-id">
+                                                    <option value="">Nenhuma (Categoria Principal)</option>
+                                                </select>
+                                                <small>Selecione uma categoria pai para criar uma subcategoria</small>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="category-descricao">Descrição da Categoria</label>
+                                                <textarea id="category-descricao" rows="4" placeholder="Informações adicionais ou regras para a categoria"></textarea>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="form-section">
+                                            <h3>⚙️ Status</h3>
+                                            
+                                            <div class="form-group">
+                                                <label>
+                                                    <input type="checkbox" id="category-status-ativo" checked>
+                                                    Ativa
+                                                </label>
+                                                <small>Categorias inativas não aparecerão nas opções de produtos</small>
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary">Salvar Categoria</button>
+                                        <button type="button" class="btn btn-secondary" onclick="showCategoriesListView()" style="margin-left: 10px;">Cancelar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tela de Clientes -->
+                    <div id="inventory-clients-view" class="inventory-view">
+                        <div class="clients-inventory-layout">
+                            <div class="clients-inventory-main-content">
+                                <!-- Lista de Clientes -->
+                                <div id="inventory-clients-list-view" class="clients-inventory-view active">
+                                    <div class="clients-header">
+                                        <h2>Clientes</h2>
+                                        <div style="display: flex; gap: 10px;">
+                                            <button class="btn btn-primary" onclick="showSection('greetings')">🎉 Felicitações</button>
+                                            <button class="btn btn-primary" onclick="showInventoryClientsRegisterView()">➕ Cadastrar Novo Cliente</button>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Barra de Pesquisa e Filtro -->
+                                    <div class="products-filters">
+                                        <div class="form-group" style="flex: 1; margin-bottom: 0;">
+                                            <input type="text" id="inventory-client-search-input" class="form-control" placeholder="🔍 Pesquisar por nome..." oninput="searchInventoryClients()">
+                                        </div>
+                                        <div class="form-group" style="margin-bottom: 0; min-width: 250px;">
+                                            <select id="inventory-client-filter" class="form-control" onchange="filterInventoryClients()">
+                                                <option value="">Todos os Clientes</option>
+                                                <option value="aniversario-proximo">Aniversário Próximo</option>
+                                                <option value="sem-aniversario">Sem Aniversário</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="inventory-clients-list" class="clients-list"></div>
+                                </div>
+                                
+                                <!-- Formulário de Cadastro/Edição -->
+                                <div id="inventory-clients-register-view" class="clients-inventory-view">
+                                    <h2 id="inventory-client-form-title">Cadastrar Novo Cliente</h2>
+                                    <form id="inventory-client-form" class="form">
+                                        <input type="hidden" id="inventory-client-id">
+                                        
+                                        <div class="form-group">
+                                            <label for="inventory-client-photo-input">Foto do Cliente</label>
+                                            <input type="file" id="inventory-client-photo-input" accept="image/*">
+                                            <div class="photo-preview">
+                                                <img id="inventory-client-photo-preview" src="" alt="Preview da Foto" style="display: none;">
+                                            </div>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="inventory-client-name">Nome *</label>
+                                            <input type="text" id="inventory-client-name" required>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="inventory-client-cpf">CPF</label>
+                                            <input type="text" id="inventory-client-cpf" placeholder="000.000.000-00">
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label for="inventory-client-birthdate">Data de Nascimento *</label>
+                                            <input type="date" id="inventory-client-birthdate" required>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label>Telefones *</label>
+                                            <div id="inventory-phones-container">
+                                                <div class="dynamic-field">
+                                                    <input type="tel" class="phone-input" placeholder="(00) 00000-0000" required>
+                                                    <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'phone')">Remover</button>
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn btn-secondary" onclick="addInventoryField('phone')">+ Adicionar Telefone</button>
+                                        </div>
+
+                                        <div class="form-group">
+                                            <label>Emails *</label>
+                                            <div id="inventory-emails-container">
+                                                <div class="dynamic-field">
+                                                    <input type="email" class="email-input" placeholder="email@exemplo.com" required>
+                                                    <button type="button" class="btn-remove" onclick="removeInventoryField(this, 'email')">Remover</button>
+                                                </div>
+                                            </div>
+                                            <button type="button" class="btn btn-secondary" onclick="addInventoryField('email')">+ Adicionar Email</button>
+                                        </div>
+
+                                        <button type="submit" class="btn btn-primary">Salvar Cliente</button>
+                                        <button type="button" class="btn btn-secondary" onclick="showInventoryClientsListView()" style="margin-left: 10px;">Cancelar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Tela de Fornecedores -->
+                    <div id="inventory-suppliers-view" class="inventory-view">
+                        <div class="suppliers-layout">
+                            <div class="suppliers-main-content">
+                                <!-- Lista de Fornecedores -->
+                                <div id="suppliers-list-view" class="suppliers-view active">
+                                    <div class="suppliers-header">
+                                        <h2>Fornecedores</h2>
+                                        <button class="btn btn-primary" onclick="showSuppliersRegisterView()">➕ Cadastrar Novo Fornecedor</button>
+                                    </div>
+                                    
+                                    <div class="suppliers-filters">
+                                        <div class="form-group" style="flex: 1; margin-right: 15px;">
+                                            <input type="text" id="supplier-search-input" class="form-control" placeholder="🔍 Pesquisar por Nome/Razão Social ou Nome Fantasia..." oninput="searchSuppliers()">
+                                        </div>
+                                        <div class="form-group" style="flex: 0 0 250px;">
+                                            <select id="supplier-category-filter" class="form-control" onchange="filterSuppliersByCategory()">
+                                                <option value="">Todas as Categorias</option>
+                                            </select>
+                                        </div>
+                                    </div>
+                                    
+                                    <div id="suppliers-list" class="clients-list"></div>
+                                </div>
+                                
+                                <!-- Formulário de Cadastro/Edição -->
+                                <div id="suppliers-register-view" class="suppliers-view">
+                                    <h2 id="supplier-form-title">Cadastrar Novo Fornecedor</h2>
+                                    <form id="supplier-form" class="form">
+                                        <input type="hidden" id="supplier-id">
+                                        
+                                        <!-- 📋 Identificação Geral -->
+                                        <div class="form-section">
+                                            <h3>📋 Identificação Geral</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-name">Nome/Razão Social *</label>
+                                                <input type="text" id="supplier-name" required>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-fantasy-name">Nome Fantasia *</label>
+                                                <input type="text" id="supplier-fantasy-name" required>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-person-type">Tipo de Pessoa *</label>
+                                                <select id="supplier-person-type" required onchange="updateSupplierDocumentField()">
+                                                    <option value="">Selecione...</option>
+                                                    <option value="Física">Física</option>
+                                                    <option value="Jurídica">Jurídica</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-document" id="supplier-document-label">CPF/CNPJ *</label>
+                                                <input type="text" id="supplier-document" required>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-state-registration">Inscrição Estadual/Municipal</label>
+                                                <input type="text" id="supplier-state-registration">
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 📞 Contato e Localização -->
+                                        <div class="form-section">
+                                            <h3>📞 Contato e Localização</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-phone">Telefone</label>
+                                                <input type="tel" id="supplier-phone" placeholder="(00) 00000-0000">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-email">E-mail</label>
+                                                <input type="email" id="supplier-email" placeholder="email@exemplo.com">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-cep">CEP</label>
+                                                <input type="text" id="supplier-cep" placeholder="00000-000" maxlength="9" oninput="formatCEP(this)">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-address">Endereço (Rua, Número, Complemento)</label>
+                                                <input type="text" id="supplier-address" placeholder="Rua, Número, Complemento">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label>Cidade / Estado</label>
+                                                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 10px;">
+                                                    <input type="text" id="supplier-city" placeholder="Cidade">
+                                                    <input type="text" id="supplier-state" placeholder="Estado" maxlength="2">
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 🏦 Dados Financeiros -->
+                                        <div class="form-section">
+                                            <h3>🏦 Dados Financeiros</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-bank">Banco</label>
+                                                <input type="text" id="supplier-bank">
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label>Agência / Conta Corrente</label>
+                                                <div style="display: grid; grid-template-columns: 1fr 2fr; gap: 10px;">
+                                                    <input type="text" id="supplier-agency" placeholder="Agência">
+                                                    <input type="text" id="supplier-account" placeholder="Conta Corrente">
+                                                </div>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-pix">Chave PIX</label>
+                                                <input type="text" id="supplier-pix" placeholder="Chave PIX">
+                                                <small>Marcar como muito útil</small>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-payment-terms">Condições de Pagamento</label>
+                                                <input type="text" id="supplier-payment-terms" placeholder="Ex: 30/60/90, à vista">
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- 🏷️ Classificação (Interna) -->
+                                        <div class="form-section">
+                                            <h3>🏷️ Classificação (Interna)</h3>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-category">Categoria de Fornecimento</label>
+                                                <select id="supplier-category">
+                                                    <option value="">Selecione uma categoria...</option>
+                                                    <option value="Matéria-prima">Matéria-prima</option>
+                                                    <option value="Embalagens">Embalagens</option>
+                                                    <option value="Serviços de TI">Serviços de TI</option>
+                                                    <option value="Serviços Gerais">Serviços Gerais</option>
+                                                    <option value="Equipamentos">Equipamentos</option>
+                                                    <option value="Insumos">Insumos</option>
+                                                    <option value="Transporte">Transporte</option>
+                                                    <option value="Limpeza">Limpeza</option>
+                                                    <option value="Manutenção">Manutenção</option>
+                                                    <option value="Outros">Outros</option>
+                                                </select>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-status">Situação</label>
+                                                <select id="supplier-status">
+                                                    <option value="Ativo" selected>Ativo</option>
+                                                    <option value="Inativo">Inativo</option>
+                                                </select>
+                                                <small>Padrão: Ativo</small>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-logo-input">Logo/Foto do Fornecedor</label>
+                                                <input type="file" id="supplier-logo-input" accept="image/*">
+                                                <div class="photo-preview">
+                                                    <img id="supplier-logo-preview" src="" alt="Preview da Logo" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px; margin-top: 10px;">
+                                                </div>
+                                                <button type="button" class="btn btn-danger" id="remove-supplier-logo-btn" onclick="removeSupplierLogo()" style="margin-top: 10px; display: none;">🗑️ Remover Logo</button>
+                                            </div>
+                                            
+                                            <div class="form-group">
+                                                <label for="supplier-notes">Observações</label>
+                                                <textarea id="supplier-notes" rows="4" placeholder="Anotações relevantes sobre o fornecedor..."></textarea>
+                                            </div>
+                                        </div>
+                                        
+                                        <button type="submit" class="btn btn-primary">Salvar Fornecedor</button>
+                                        <button type="button" class="btn btn-secondary" onclick="showSuppliersListView()" style="margin-left: 10px;">Cancelar</button>
+                                    </form>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Placeholders para outras views -->
+                    <div id="inventory-entries-view" class="inventory-view">
+                        <h2>Entradas/Recebimentos</h2>
+                        <p>Esta funcionalidade está em desenvolvimento.</p>
+                    </div>
+                    
+                    <div id="inventory-exits-view" class="inventory-view">
+                        <div class="sales-list-header">
+                            <h2>Saídas/Vendas</h2>
+                            <div class="sales-list-actions">
+                                <input type="text" id="sales-search" placeholder="🔍 Pesquisar vendas..." onkeyup="searchSales()">
+                                <button class="btn btn-primary" onclick="openSalesFilter()">🔍 Filtros Avançados</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Filtros Avançados -->
+                        <div id="sales-filter-panel" class="sales-filter-panel" style="display: none;">
+                            <h3>Filtros de Pesquisa</h3>
+                            <div class="filter-row">
+                                <div class="form-group">
+                                    <label>Data Inicial:</label>
+                                    <input type="date" id="filter-date-start">
+                                </div>
+                                <div class="form-group">
+                                    <label>Data Final:</label>
+                                    <input type="date" id="filter-date-end">
+                                </div>
+                                <div class="form-group">
+                                    <label>Nr. Venda:</label>
+                                    <input type="text" id="filter-sale-number" placeholder="Número da venda">
+                                </div>
+                                <div class="form-group">
+                                    <label>Cliente:</label>
+                                    <input type="text" id="filter-client" placeholder="Nome do cliente">
+                                </div>
+                                <div class="form-group">
+                                    <label>Tipo de Venda:</label>
+                                    <select id="filter-sale-type">
+                                        <option value="">Todas</option>
+                                        <option value="completed">Concluídas</option>
+                                        <option value="partial">Parcialmente Pagas</option>
+                                        <option value="open">Em Aberto</option>
+                                        <option value="cancelled">Canceladas</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <button class="btn btn-primary" onclick="applySalesFilter()">Aplicar Filtros</button>
+                                    <button class="btn btn-secondary" onclick="clearSalesFilter()">Limpar</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Lista de Vendas -->
+                        <div id="sales-list-container" class="sales-list-container">
+                            <table class="sales-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Data</th>
+                                        <th>Nr. Venda</th>
+                                        <th>Cliente</th>
+                                        <th>Valor Total</th>
+                                        <th>Vendedor</th>
+                                        <th>Status</th>
+                                        <th>Ações</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="sales-list-body">
+                                    <tr>
+                                        <td colspan="8" style="text-align: center; padding: 40px; color: #666;">
+                                            Nenhuma venda encontrada
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <!-- Tela Contas a Receber -->
+                    <div id="inventory-receivables-view" class="inventory-view">
+                        <div class="receivables-header">
+                            <h2>💰 Contas a Receber</h2>
+                            <div class="receivables-actions">
+                                <input type="text" id="receivables-search" placeholder="🔍 Pesquisar por nome, telefone ou número da venda..." onkeyup="searchReceivables()">
+                                <button class="btn btn-primary" onclick="toggleReceivablesFilter()">🔍 Filtros</button>
+                            </div>
+                        </div>
+                        
+                        <!-- Painel de Filtros -->
+                        <div id="receivables-filter-panel" class="receivables-filter-panel" style="display: none;">
+                            <h3>Filtros de Pesquisa</h3>
+                            <div class="filter-row">
+                                <div class="form-group">
+                                    <label>Nome do Cliente:</label>
+                                    <input type="text" id="filter-receivables-client-name" placeholder="Nome do cliente">
+                                </div>
+                                <div class="form-group">
+                                    <label>Telefone/WhatsApp:</label>
+                                    <input type="text" id="filter-receivables-phone" placeholder="Telefone ou WhatsApp">
+                                </div>
+                                <div class="form-group">
+                                    <label>Número da Venda:</label>
+                                    <input type="text" id="filter-receivables-sale-number" placeholder="Nr. Venda">
+                                </div>
+                                <div class="form-group">
+                                    <label>Status:</label>
+                                    <select id="filter-receivables-status">
+                                        <option value="">Todos</option>
+                                        <option value="a-vencer">A Vencer</option>
+                                        <option value="vencido">Vencido</option>
+                                        <option value="pago">Pago</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Data Inicial:</label>
+                                    <input type="date" id="filter-receivables-date-start">
+                                </div>
+                                <div class="form-group">
+                                    <label>Data Final:</label>
+                                    <input type="date" id="filter-receivables-date-end">
+                                </div>
+                                <div class="form-group" style="grid-column: 1 / -1;">
+                                    <button class="btn btn-primary" onclick="applyReceivablesFilter()">Aplicar Filtros</button>
+                                    <button class="btn btn-secondary" onclick="clearReceivablesFilter()">Limpar</button>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Container de Cards -->
+                        <div id="receivables-cards-container" class="receivables-cards-container">
+                            <!-- Cards serão inseridos aqui via JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <!-- Modal de Detalhes da Cobrança -->
+                    <div id="receivable-details-modal" class="modal" style="display: none;">
+                        <div class="modal-content" style="max-width: 600px;">
+                            <div class="modal-header">
+                                <h2>Detalhes da Cobrança</h2>
+                                <span class="close" onclick="closeReceivableDetailsModal()">&times;</span>
+                            </div>
+                            <div class="modal-body" id="receivable-details-content">
+                                <!-- Conteúdo será preenchido via JavaScript -->
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Modal de Registrar Pagamento -->
+                    <div id="receivable-payment-modal" class="modal" style="display: none;">
+                        <div class="modal-content" style="max-width: 500px;">
+                            <div class="modal-header">
+                                <h2>Registrar Pagamento</h2>
+                                <span class="close" onclick="closeReceivablePaymentModal()">&times;</span>
+                            </div>
+                            <div class="modal-body">
+                                <div class="form-group">
+                                    <label>Valor a Pagar:</label>
+                                    <input type="number" id="payment-amount" step="0.01" min="0" placeholder="0.00">
+                                </div>
+                                <div class="form-group">
+                                    <label>Data do Pagamento:</label>
+                                    <input type="date" id="payment-date" value="">
+                                </div>
+                                <div class="form-group">
+                                    <label>Observações:</label>
+                                    <textarea id="payment-notes" rows="3" placeholder="Observações sobre o pagamento..."></textarea>
+                                </div>
+                                <div class="modal-actions">
+                                    <button class="btn btn-primary" onclick="confirmReceivablePayment()">Confirmar Pagamento</button>
+                                    <button class="btn btn-secondary" onclick="closeReceivablePaymentModal()">Cancelar</button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div id="inventory-reports-view" class="inventory-view">
+                        <h2>Relatórios</h2>
+                        <p>Esta funcionalidade está em desenvolvimento.</p>
+                    </div>
+                    
+                    <div id="inventory-settings-view" class="inventory-view">
+                        <h2>Configurações</h2>
+                        <div class="settings-menu">
+                            <div class="settings-menu-item" onclick="showPaymentMethodsView()">
+                                <div class="settings-menu-icon">💳</div>
+                                <div class="settings-menu-content">
+                                    <h3>Formas de Pagamento</h3>
+                                    <p>Gerencie as formas de pagamento disponíveis</p>
+                                </div>
+                            </div>
+                            <div class="settings-menu-item" onclick="showStockVisibilityView()">
+                                <div class="settings-menu-icon">📊</div>
+                                <div class="settings-menu-content">
+                                    <h3>Visibilidade de Estoque na Tela Inicial</h3>
+                                    <p>Configure regras de alerta de estoque para a tela inicial</p>
+                                </div>
+                            </div>
+                            <div class="settings-menu-item" onclick="showReceivablesVisibilityView()">
+                                <div class="settings-menu-icon">💰</div>
+                                <div class="settings-menu-content">
+                                    <h3>Visibilidade Contas a Receber Tela Inicial</h3>
+                                    <p>Configure regras de alerta de vencimento para a tela inicial</p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- View de Formas de Pagamento -->
+                        <div id="payment-methods-view" class="payment-methods-view" style="display: none;">
+                            <!-- View de Lista -->
+                            <div id="payment-methods-list-view" class="payment-methods-list-view active">
+                                <button class="btn btn-secondary" onclick="backToSettingsMenu()" style="margin-bottom: 20px;">
+                                    ← Voltar
+                                </button>
+                                <div class="payment-methods-header">
+                                    <h2>Formas de Pagamento</h2>
+                                    <button class="btn btn-primary" onclick="showAddPaymentMethodForm()">
+                                        ➕ Adicionar Forma de Pagamento
+                                    </button>
+                                </div>
+                                
+                                <div id="payment-methods-list" class="payment-methods-list">
+                                    <!-- Lista de formas de pagamento será carregada aqui -->
+                                </div>
+                            </div>
+                            
+                            <!-- View de Formulário (Cadastro/Edição) -->
+                            <div id="payment-methods-register-view" class="payment-methods-register-view">
+                                <button class="btn btn-secondary" onclick="showPaymentMethodsList()" style="margin-bottom: 20px;">
+                                    ← Voltar
+                                </button>
+                                <h2 id="payment-method-form-title">Adicionar Forma de Pagamento</h2>
+                                <form id="payment-method-form" class="form">
+                                    <input type="hidden" id="payment-method-id">
+                                    
+                                    <div class="form-group">
+                                        <label for="payment-method-name">Nome da Forma de Pagamento *</label>
+                                        <input type="text" id="payment-method-name" required placeholder="Ex: Dinheiro, PIX, etc.">
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label for="payment-method-description">Descrição (opcional)</label>
+                                        <textarea id="payment-method-description" rows="3" placeholder="Descrição adicional sobre esta forma de pagamento"></textarea>
+                                    </div>
+                                    
+                                    <!-- Campos específicos do PIX -->
+                                    <div id="payment-method-pix-group" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="payment-method-pix-type">Modelo da Chave PIX *</label>
+                                            <select id="payment-method-pix-type">
+                                                <option value="cpf">CPF/CNPJ</option>
+                                                <option value="email">E-mail</option>
+                                                <option value="phone">Telefone</option>
+                                                <option value="random">Chave Aleatória</option>
+                                            </select>
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="payment-method-pix-key">Chave PIX *</label>
+                                            <input type="text" id="payment-method-pix-key" placeholder="Digite a chave PIX de recebimento">
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="payment-method-pix-recipient">Nome do Recebedor *</label>
+                                            <input type="text" id="payment-method-pix-recipient" placeholder="Nome ou Razão Social do recebedor">
+                                        </div>
+                                        
+                                        <div class="form-group">
+                                            <label for="payment-method-image">Imagem do PIX (opcional)</label>
+                                            <input type="file" id="payment-method-image" accept="image/*">
+                                            <div id="payment-method-image-preview-container" style="margin-top: 10px; display: none;">
+                                                <img id="payment-method-image-preview" src="" alt="Preview da imagem" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 2px solid #e0e0e0;">
+                                                <button type="button" class="btn btn-danger" onclick="removePaymentMethodImage()" style="margin-top: 10px; display: block;">🗑️ Remover Imagem</button>
+                                            </div>
+                                            <p class="form-help">Adicione um QR Code estático, se desejar.</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <!-- Campo de parcelas para Crédito Parcelado -->
+                                    <div id="payment-method-installments-group" style="display: none;">
+                                        <div class="form-group">
+                                            <label for="payment-method-installments">Quantidade de Parcelas *</label>
+                                            <input type="number" id="payment-method-installments" min="1" max="99" step="1" placeholder="Ex: 3, 6, 12">
+                                            <p class="form-help">Defina o número máximo de parcelas permitidas para esta forma de pagamento.</p>
+                                        </div>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="payment-method-active" checked>
+                                            Ativa
+                                        </label>
+                                        <p class="form-help">Formas de pagamento inativas não aparecerão nas opções de venda.</p>
+                                    </div>
+                                    
+                                    <div class="form-actions">
+                                        <button type="button" class="btn btn-secondary" onclick="showPaymentMethodsList()">Cancelar</button>
+                                        <button type="submit" class="btn btn-primary">Salvar</button>
+                                    </div>
+                                </form>
+                            </div>
+                        </div>
+                        
+                        <!-- View de Visibilidade de Estoque na Tela Inicial -->
+                        <div id="stock-visibility-view" class="stock-visibility-view" style="display: none;">
+                            <button class="btn btn-secondary" onclick="backToSettingsMenu()" style="margin-bottom: 20px;">
+                                ← Voltar
+                            </button>
+                            <h2>Visibilidade de Estoque na Tela Inicial</h2>
+                            <p style="margin-bottom: 30px; color: #666;">
+                                Configure até 3 regras de alerta de estoque para exibir na tela inicial. 
+                                Produtos que atendem às regras aparecerão em cards coloridos.
+                            </p>
+                            
+                            <form id="stock-visibility-form" class="form">
+                                <!-- Regra 1: Estoque <= 0 (Fixa) -->
+                                <div class="stock-rule-card" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 10px;">Regra 1: Estoque Zero ou Negativo (Fixa)</h3>
+                                    <p style="opacity: 0.9; margin-bottom: 15px;">
+                                        Esta regra é fixa e sempre ativa. Produtos com estoque ≤ 0 aparecerão com card piscando.
+                                    </p>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <label style="font-weight: 600;">Condição:</label>
+                                        <span>Estoque ≤ 0</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                                        <label style="font-weight: 600;">Comportamento:</label>
+                                        <span>Card Piscando (Animação)</span>
+                                    </div>
+                                </div>
+                                
+                                <!-- Regra 2: Configurável -->
+                                <div class="stock-rule-card" style="background: #f8f9fa; border: 2px solid #e0e0e0; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 15px; color: #333;">Regra 2: Estoque Baixo (Configurável)</h3>
+                                    <div class="form-group">
+                                        <label for="stock-rule-2-limit">Limite de Estoque *</label>
+                                        <input type="number" id="stock-rule-2-limit" min="1" step="1" placeholder="Ex: 10" 
+                                               value="10" required>
+                                        <small class="form-help">Produtos com estoque menor ou igual a este valor serão exibidos</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stock-rule-2-color">Cor do Card *</label>
+                                        <input type="color" id="stock-rule-2-color" value="#ffa500" required>
+                                        <small class="form-help">Escolha a cor de fundo do card para esta regra</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="stock-rule-2-enabled" checked>
+                                            Ativar esta regra
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Regra 3: Configurável -->
+                                <div class="stock-rule-card" style="background: #f8f9fa; border: 2px solid #e0e0e0; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 15px; color: #333;">Regra 3: Estoque Muito Baixo (Configurável)</h3>
+                                    <div class="form-group">
+                                        <label for="stock-rule-3-limit">Limite de Estoque *</label>
+                                        <input type="number" id="stock-rule-3-limit" min="1" step="1" placeholder="Ex: 5" 
+                                               value="5" required>
+                                        <small class="form-help">Produtos com estoque menor ou igual a este valor serão exibidos</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="stock-rule-3-color">Cor do Card *</label>
+                                        <input type="color" id="stock-rule-3-color" value="#ff9800" required>
+                                        <small class="form-help">Escolha a cor de fundo do card para esta regra</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="stock-rule-3-enabled" checked>
+                                            Ativar esta regra
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary" onclick="backToSettingsMenu()">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
+                                </div>
+                            </form>
+                        </div>
+                        
+                        <!-- View de Visibilidade de Contas a Receber -->
+                        <div id="receivables-visibility-view" class="receivables-visibility-view" style="display: none;">
+                            <button class="btn btn-secondary" onclick="backToSettingsMenu()" style="margin-bottom: 20px;">
+                                ← Voltar
+                            </button>
+                            <h2>Visibilidade Contas a Receber Tela Inicial</h2>
+                            <p style="margin-bottom: 30px; color: #666;">
+                                Configure até 3 regras de alerta de vencimento para exibir na tela inicial. 
+                                Contas que atendem às regras aparecerão em cards coloridos.
+                            </p>
+                            
+                            <form id="receivables-visibility-form" class="form">
+                                <!-- Regra 1: Vencidas ou Vencendo Hoje (Fixa) -->
+                                <div class="receivables-rule-card" style="background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); color: white; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 10px;">Regra 1: Contas que Vencem Hoje ou Já Vencidas (Fixa)</h3>
+                                    <p style="opacity: 0.9; margin-bottom: 15px;">
+                                        Esta regra é fixa e sempre ativa. Contas vencidas ou vencendo hoje aparecerão com card piscando.
+                                    </p>
+                                    <div style="display: flex; align-items: center; gap: 10px;">
+                                        <label style="font-weight: 600;">Condição:</label>
+                                        <span>Data de Vencimento ≤ Hoje</span>
+                                    </div>
+                                    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px;">
+                                        <label style="font-weight: 600;">Comportamento:</label>
+                                        <span>Card Piscando (Animação)</span>
+                                    </div>
+                                    <div class="form-group" style="margin-top: 15px;">
+                                        <label for="receivables-rule-1-color" style="color: white; font-weight: 600;">Cor do Card *</label>
+                                        <input type="color" id="receivables-rule-1-color" value="#ff6b6b" required style="margin-top: 5px;">
+                                        <small class="form-help" style="color: rgba(255, 255, 255, 0.9);">Escolha a cor de fundo do card para esta regra</small>
+                                    </div>
+                                </div>
+                                
+                                <!-- Regra 2: Configurável -->
+                                <div class="receivables-rule-card" style="background: #f8f9fa; border: 2px solid #e0e0e0; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 15px; color: #333;">Regra 2: Contas a Vencer (Configurável)</h3>
+                                    <div class="form-group">
+                                        <label for="receivables-rule-2-max-days">Dias Máximos até Vencimento *</label>
+                                        <input type="number" id="receivables-rule-2-max-days" min="1" max="90" step="1" placeholder="Ex: 30" 
+                                               value="30" required onchange="validateReceivablesRule2()">
+                                        <small class="form-help">Contas que faltam de 1 dia até este número de dias para vencer serão exibidas (máximo: 90 dias)</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="receivables-rule-2-color">Cor do Card *</label>
+                                        <input type="color" id="receivables-rule-2-color" value="#ffa500" required>
+                                        <small class="form-help">Escolha a cor de fundo do card para esta regra</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="receivables-rule-2-enabled" checked>
+                                            Ativar esta regra
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <!-- Regra 3: Configurável -->
+                                <div class="receivables-rule-card" style="background: #f8f9fa; border: 2px solid #e0e0e0; padding: 20px; border-radius: 10px; margin-bottom: 20px;">
+                                    <h3 style="margin-bottom: 15px; color: #333;">Regra 3: Contas a Vencer (Acima do Dia Máximo da Regra 2)</h3>
+                                    <div class="form-group">
+                                        <label for="receivables-rule-3-max-days">Dias Máximos até Vencimento *</label>
+                                        <input type="number" id="receivables-rule-3-max-days" min="91" max="180" step="1" placeholder="Ex: 180" 
+                                               value="180" required onchange="validateReceivablesRule3()">
+                                        <small class="form-help">Contas que faltam mais dias que a Regra 2 até este número de dias para vencer serão exibidas (mínimo: 91, máximo: 180 dias)</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label for="receivables-rule-3-color">Cor do Card *</label>
+                                        <input type="color" id="receivables-rule-3-color" value="#4caf50" required>
+                                        <small class="form-help">Escolha a cor de fundo do card para esta regra</small>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>
+                                            <input type="checkbox" id="receivables-rule-3-enabled" checked>
+                                            Ativar esta regra
+                                        </label>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-actions">
+                                    <button type="button" class="btn btn-secondary" onclick="backToSettingsMenu()">Cancelar</button>
+                                    <button type="submit" class="btn btn-primary">Salvar Configurações</button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Modal de Detalhes do Produto -->
+        <div id="product-details-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeProductDetailsModal()">&times;</span>
+                <h2 id="product-details-name">Nome do Produto</h2>
+                <div class="product-details-content">
+                    <div class="product-details-image">
+                        <img id="product-details-image" src="" alt="Foto do Produto" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px;">
+                        <div id="product-details-image-placeholder" style="width: 200px; height: 200px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 48px;">📦</div>
+                    </div>
+                    <div class="product-details-actions">
+                        <button class="btn btn-edit" onclick="editProductFromModal()">✏️ Editar Produto</button>
+                        <button class="btn btn-primary" onclick="alterProductStockFromModal()">📊 Alterar Qtde em Estoque</button>
+                        <button class="btn btn-delete" onclick="deleteProductFromModal()">🗑️ Excluir Produto</button>
+                        <button class="btn btn-secondary" id="change-product-image-btn" onclick="changeProductImageFromModal()" style="display: none;">🖼️ Alterar Imagem</button>
+                        <button class="btn btn-danger" id="remove-product-image-modal-btn" onclick="removeProductImageFromModal()" style="display: none;">🗑️ Excluir Imagem</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal para Parcelamento de Crédito -->
+        <div id="installment-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeInstallmentModal()">&times;</span>
+                <h2>Parcelamento de Crédito</h2>
+                <form id="installment-form" class="form">
+                    <div class="form-group">
+                        <label for="installment-quantity">Quantas vezes deseja parcelar? *</label>
+                        <input type="number" id="installment-quantity" min="1" step="1" required placeholder="Ex: 3, 6, 12">
+                        <small class="form-help" id="installment-max-help">Máximo de parcelas permitidas: <span id="installment-max-value">12</span></small>
+                    </div>
+                    <div class="form-group">
+                        <label for="installment-value">Valor a Parcelar (R$) *</label>
+                        <input type="number" id="installment-value" step="0.01" min="0.01" required placeholder="0.00">
+                        <small class="form-help">Digite o valor que será parcelado</small>
+                    </div>
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" onclick="closeInstallmentModal()">Cancelar</button>
+                        <button type="submit" class="btn btn-primary">Confirmar</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Modal para Alterar Quantidade em Estoque -->
+        <div id="product-stock-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeProductStockModal()">&times;</span>
+                <h2>Alterar Quantidade em Estoque</h2>
+                <form id="product-stock-form" class="form">
+                    <input type="hidden" id="product-stock-id">
+                    <div class="form-group">
+                        <label>Quantidade Atual</label>
+                        <input type="number" id="product-stock-current" readonly style="background: #f0f0f0;">
+                    </div>
+                    <div class="form-group">
+                        <label for="product-stock-new">Nova Quantidade *</label>
+                        <input type="number" id="product-stock-new" min="0" step="1" required>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                    <button type="button" class="btn btn-secondary" onclick="closeProductStockModal()" style="margin-left: 10px;">Cancelar</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Modal de Detalhes do Cliente -->
+        <div id="client-details-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeClientDetailsModal()">&times;</span>
+                <h2 id="client-details-name">Nome do Cliente</h2>
+                <div class="client-details-content">
+                    <div class="client-details-image">
+                        <img id="client-details-photo" src="" alt="Foto do Cliente" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px;">
+                        <div id="client-details-photo-placeholder" style="width: 200px; height: 200px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 48px;">👤</div>
+                    </div>
+                    <div class="client-details-info">
+                        <p id="client-details-cpf"></p>
+                        <p id="client-details-birthdate"></p>
+                        <p id="client-details-phones"></p>
+                        <p id="client-details-emails"></p>
+                    </div>
+                    <div class="client-details-actions">
+                        <button class="btn btn-edit" onclick="editClientFromModal()">✏️ Editar Cliente</button>
+                        <button class="btn btn-delete" onclick="deleteClientFromModal()">🗑️ Excluir Cliente</button>
+                        <button class="btn btn-secondary" id="change-client-photo-btn" onclick="changeClientPhotoFromModal()" style="display: none;">🖼️ Alterar Foto</button>
+                        <button class="btn btn-danger" id="remove-client-photo-modal-btn" onclick="removeClientPhotoFromModal()" style="display: none;">🗑️ Excluir Foto</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal de Detalhes do Fornecedor -->
+        <div id="supplier-details-modal" class="modal">
+            <div class="modal-content">
+                <span class="close" onclick="closeSupplierDetailsModal()">&times;</span>
+                <h2 id="supplier-details-name">Nome/Razão Social</h2>
+                <div class="supplier-details-content">
+                    <div class="supplier-details-image">
+                        <img id="supplier-details-logo" src="" alt="Logo do Fornecedor" style="display: none; max-width: 200px; max-height: 200px; border-radius: 8px;">
+                        <div id="supplier-details-logo-placeholder" style="width: 200px; height: 200px; background: #e0e0e0; display: flex; align-items: center; justify-content: center; border-radius: 8px; font-size: 48px;">🏢</div>
+                    </div>
+                    <div class="supplier-details-info">
+                        <p><strong>Nome Fantasia:</strong> <span id="supplier-details-fantasy-name"></span></p>
+                        <p><strong>Situação:</strong> <span id="supplier-details-status"></span></p>
+                    </div>
+                    <div class="supplier-details-actions">
+                        <button class="btn btn-edit" onclick="editSupplierFromModal()">✏️ Editar Fornecedor</button>
+                        <button class="btn btn-primary" onclick="toggleSupplierStatusFromModal()">🔄 Alterar Situação</button>
+                        <button class="btn btn-delete" onclick="deleteSupplierFromModal()">🗑️ Excluir Fornecedor</button>
+                        <button class="btn btn-secondary" id="change-supplier-logo-btn" onclick="changeSupplierLogoFromModal()" style="display: none;">🖼️ Alterar Logo</button>
+                        <button class="btn btn-danger" id="remove-supplier-logo-modal-btn" onclick="removeSupplierLogoFromModal()" style="display: none;">🗑️ Excluir Logo</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Seção Perfil da Empresa -->
         <section id="company" class="section">
             <h2>Perfil da Empresa</h2>
             <form id="company-form" class="form">
                 <div class="form-group">
                     <label for="company-logo-input">Logo da Empresa</label>
-                    <input type="file" id="company-logo-input" accept="image/jpeg,image/jpg,image/png">
+                    <input type="file" id="company-logo-input" accept="image/jpeg,image/jpg,image/png,video/webm,video/mp4">
+                    <p class="form-help">Formatos permitidos: Imagens (JPG, PNG) ou Vídeos (WEBM, MP4)</p>
                     <div class="logo-preview">
-                        <img id="logo-preview" src="" alt="Preview do Logo" style="display: none;">
+                        <img id="logo-preview" src="" alt="Preview do Logo" style="display: none; max-width: 300px; max-height: 300px; border-radius: 8px;">
+                        <video id="logo-preview-video" src="" alt="Preview do Vídeo" style="display: none; max-width: 300px; max-height: 300px; border-radius: 8px;" controls></video>
                     </div>
                     <button type="button" class="btn btn-danger" id="remove-logo-btn" onclick="removeCompanyLogo()" style="margin-top: 10px; display: none;">🗑️ Remover Logo</button>
                 </div>
@@ -361,6 +1899,12 @@
                     <h3>Definições dos Botões</h3>
                     <p>Personalizar cores e bordas dos botões de navegação</p>
                 </div>
+                
+                <div class="option-card" onclick="showSection('inactivity-timeout')">
+                    <div class="option-icon">⏱️</div>
+                    <h3>Tempo Inatividade no sistema</h3>
+                    <p>Configure o tempo de inatividade</p>
+                </div>
             </div>
         </section>
 
@@ -451,29 +1995,41 @@
 
         <!-- Seção Backup -->
         <section id="backup" class="section">
-            <h2>Backup dos Dados</h2>
-            <div class="backup-restore-container">
-                <!-- Seção de Salvamento Automático -->
-                <div class="auto-save-section">
-                    <div class="auto-save-header">
-                        <h3 id="auto-save-status">Salvamento Automático: Inativo</h3>
-                        <label class="toggle-switch">
-                            <input type="checkbox" id="auto-save-toggle">
-                            <span class="toggle-slider"></span>
-                        </label>
+            <div class="backup-container">
+                <h2 class="backup-title">Backup dos Dados</h2>
+                <div class="backup-card">
+                    <!-- Seção Salvamento Automático -->
+                    <div class="auto-save-section">
+                        <div class="auto-save-header">
+                            <span class="auto-save-label" id="auto-save-label">Salvamento Automático: Ativo</span>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="auto-save-toggle" checked>
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <p class="auto-save-description">
+                            Quando ativado, o sistema salvará automaticamente os dados em "salvamento_automatico.json" após cada alteração.
+                        </p>
                     </div>
-                    <p class="auto-save-description">Quando ativado, o sistema salvará automaticamente os dados em "salvamento automatico.json" após cada alteração.</p>
+                    
+                    <!-- Linha Divisória -->
+                    <div class="backup-divider"></div>
+                    
+                    <!-- Seção Backup Manual -->
+                    <div class="manual-backup-section">
+                        <p class="backup-description">
+                            Faça backup de todos os seus dados (clientes, empresa, felicitações e licença).
+                        </p>
+                        <button class="btn btn-backup" onclick="downloadBackup()">
+                            <span class="backup-icon">💾</span>
+                            Fazer Backup
+                        </button>
+                        <button class="btn btn-back" onclick="showSection('more-options')">
+                            <span class="back-icon">←</span>
+                            Voltar
+                        </button>
+                    </div>
                 </div>
-                
-                <hr class="section-divider">
-                
-                <!-- Seção de Backup Manual -->
-                <div class="manual-backup-section">
-                    <p>Faça backup de todos os seus dados (clientes, empresa, felicitações e licença).</p>
-                    <button class="btn btn-primary" onclick="downloadBackup()">💾 Fazer Backup</button>
-                </div>
-                
-                <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 15px;">← Voltar</button>
             </div>
         </section>
 
@@ -579,6 +2135,49 @@
             <button class="btn btn-secondary" onclick="showSection('more-options')" style="margin-top: 20px;">← Voltar</button>
         </section>
 
+        <!-- Seção Tempo Inatividade no sistema -->
+        <section id="inactivity-timeout" class="section">
+            <div class="settings-container">
+                <div class="settings-card">
+                    <h2>⏱️ Tempo Inatividade no sistema</h2>
+                    <p style="margin-bottom: 20px; color: #666;">
+                        Configure o tempo inativo no sistema para que o usuário deva realizar o login novamente.
+                    </p>
+                    
+                    <form id="inactivity-timeout-form" class="form">
+                        <div class="form-section">
+                            <h3>👤 Administrador</h3>
+                            <div class="form-group">
+                                <label for="admin-timeout-hours">Tempo de Inatividade (Horas:Minutos)</label>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="number" id="admin-timeout-hours" min="0" max="23" value="0" style="width: 80px; text-align: center;" required>
+                                    <span style="font-size: 18px; font-weight: bold;">:</span>
+                                    <input type="number" id="admin-timeout-minutes" min="0" max="59" value="0" style="width: 80px; text-align: center;" required>
+                                </div>
+                                <small>Máximo: 23:59</small>
+                            </div>
+                        </div>
+                        
+                        <div class="form-section">
+                            <h3>👷 Funcionário</h3>
+                            <div class="form-group">
+                                <label for="funcionario-timeout-hours">Tempo de Inatividade (Horas:Minutos)</label>
+                                <div style="display: flex; gap: 10px; align-items: center;">
+                                    <input type="number" id="funcionario-timeout-hours" min="0" max="23" value="0" style="width: 80px; text-align: center;" required>
+                                    <span style="font-size: 18px; font-weight: bold;">:</span>
+                                    <input type="number" id="funcionario-timeout-minutes" min="0" max="59" value="0" style="width: 80px; text-align: center;" required>
+                                </div>
+                                <small>Máximo: 23:59</small>
+                            </div>
+                        </div>
+                        
+                        <button type="button" class="btn btn-primary" onclick="saveInactivityTimeout()">💾 Salvar Configurações</button>
+                        <button type="button" class="btn btn-secondary" onclick="showSection('more-options')" style="margin-left: 10px;">← Voltar</button>
+                    </form>
+                </div>
+            </div>
+        </section>
+
         <!-- Seção Usuários -->
         <section id="users" class="section">
             <div class="users-layout">
@@ -654,6 +2253,29 @@
                 </div>
             </div>
         </section>
+
+        <!-- Modal de Permissões de Usuário -->
+        <div id="user-permissions-modal" class="modal">
+            <div class="modal-content" style="max-width: 600px;">
+                <span class="close" onclick="closeUserPermissionsModal()">&times;</span>
+                <h2>🔐 Permissões do Usuário</h2>
+                <div id="user-permissions-content">
+                    <p id="user-permissions-name" style="margin-bottom: 20px; font-size: 18px; font-weight: bold; color: #333;"></p>
+                    
+                    <div class="form-section">
+                        <h3>Menus do Sistema</h3>
+                        <div id="permissions-list" style="display: flex; flex-direction: column; gap: 15px;">
+                            <!-- Permissões serão adicionadas aqui via JavaScript -->
+                        </div>
+                    </div>
+                    
+                    <div style="margin-top: 30px; display: flex; gap: 10px;">
+                        <button type="button" class="btn btn-primary" onclick="saveUserPermissions()">💾 Salvar Permissões</button>
+                        <button type="button" class="btn btn-secondary" onclick="closeUserPermissionsModal()">Cancelar</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Modal para Editar Usuário -->
@@ -808,6 +2430,69 @@
         </div>
     </div>
 
+    <!-- Modal para Adicionar/Editar Forma de Pagamento -->
+    <div id="payment-method-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closePaymentMethodModal()">&times;</span>
+            <h2 id="payment-method-modal-title">Adicionar Forma de Pagamento</h2>
+            <form id="payment-method-form" class="form" onsubmit="handleSubmitPaymentMethod(event)">
+                <input type="hidden" id="payment-method-id">
+                <div class="form-group">
+                    <label for="payment-method-name">Nome da Forma de Pagamento *</label>
+                    <input type="text" id="payment-method-name" required placeholder="Ex: Dinheiro, PIX, etc.">
+                </div>
+                <div class="form-group">
+                    <label for="payment-method-description">Descrição (opcional)</label>
+                    <textarea id="payment-method-description" rows="3" placeholder="Descrição adicional sobre esta forma de pagamento"></textarea>
+                </div>
+                <div id="payment-method-pix-group" style="display: none;">
+                    <div class="form-group">
+                        <label for="payment-method-pix-type">Modelo da Chave PIX *</label>
+                        <select id="payment-method-pix-type">
+                            <option value="cpf">CPF/CNPJ</option>
+                            <option value="email">E-mail</option>
+                            <option value="phone">Telefone</option>
+                            <option value="random">Chave Aleatória</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="payment-method-pix-key">Chave PIX *</label>
+                        <input type="text" id="payment-method-pix-key" placeholder="Digite a chave PIX de recebimento">
+                    </div>
+                    <div class="form-group">
+                        <label for="payment-method-pix-recipient">Nome do Recebedor *</label>
+                        <input type="text" id="payment-method-pix-recipient" placeholder="Nome ou Razão Social do recebedor">
+                    </div>
+                    <div class="form-group">
+                        <label for="payment-method-image">Imagem do PIX (opcional)</label>
+                        <input type="file" id="payment-method-image" accept="image/*" onchange="handlePaymentMethodImageUpload(event)">
+                        <div id="payment-method-image-preview-container" style="margin-top: 10px; display: none;">
+                            <img id="payment-method-image-preview" src="" alt="Preview da imagem" style="max-width: 200px; max-height: 200px; border-radius: 8px; border: 2px solid #e0e0e0;">
+                            <button type="button" class="btn btn-danger" onclick="removePaymentMethodImage()" style="margin-top: 10px; display: block;">🗑️ Remover Imagem</button>
+                        </div>
+                        <p class="form-help">Adicione um QR Code estático, se desejar.</p>
+                    </div>
+                </div>
+                <div id="payment-method-installments-group" class="form-group" style="display: none;">
+                    <label for="payment-method-installments">Quantidade de Parcelas *</label>
+                    <input type="number" id="payment-method-installments" min="1" max="99" step="1" placeholder="Ex: 3, 6, 12" required>
+                    <p class="form-help">Defina o número máximo de parcelas permitidas para esta forma de pagamento.</p>
+                </div>
+                <div class="form-group">
+                    <label>
+                        <input type="checkbox" id="payment-method-active" checked>
+                        Ativa
+                    </label>
+                    <p class="form-help">Formas de pagamento inativas não aparecerão nas opções de venda.</p>
+                </div>
+                <div class="form-actions">
+                    <button type="button" class="btn btn-secondary" onclick="closePaymentMethodModal()">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">Salvar</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
         <!-- Seção Configurações -->
         <section id="settings" class="section">
             <div class="settings-container">
@@ -941,6 +2626,41 @@
                 <button type="button" class="btn btn-secondary" onclick="closeCropModal()">Cancelar</button>
                 <button type="button" class="btn btn-primary" onclick="confirmCrop()">✓ Confirmar</button>
             </div>
+        </div>
+    </div>
+
+    <!-- Modal para Selecionar Cliente na Venda -->
+    <div id="select-client-sale-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeClientSelector()">&times;</span>
+            <h2>Selecionar Cliente</h2>
+            <input type="text" id="client-search-sale" placeholder="🔍 Pesquisar cliente..." onkeyup="searchClientsForSale()" style="width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 5px;">
+            <div id="clients-list-sale" class="clients-list-sale"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="setDefaultClient()">Usar Cliente Padrão</button>
+                <button class="btn btn-secondary" onclick="closeClientSelector()">Cancelar</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal para Localizar Venda -->
+    <div id="locate-sale-modal" class="modal">
+        <div class="modal-content">
+            <span class="close" onclick="closeLocateSale()">&times;</span>
+            <h2>Localizar Venda</h2>
+            <div class="form-group">
+                <label>Nr. Venda ou ID:</label>
+                <input type="text" id="locate-sale-input" placeholder="Digite o número ou ID da venda">
+            </div>
+            <div class="form-group">
+                <label>Data da Venda:</label>
+                <input type="date" id="locate-sale-date">
+            </div>
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="performLocateSale()">Buscar</button>
+                <button class="btn btn-secondary" onclick="closeLocateSale()">Cancelar</button>
+            </div>
+            <div id="locate-sale-results" style="margin-top: 20px;"></div>
         </div>
     </div>
 
